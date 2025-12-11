@@ -1,0 +1,41 @@
+name: Manual Build
+
+on: 
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for building'
+        required: false
+        default: 'Testing cross-platform'
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: rush-linux-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: rush-macos-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # Upload the binary
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/rush
