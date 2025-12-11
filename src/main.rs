@@ -14,9 +14,25 @@ fn main() -> Result<()> {
     let mut engine = RushEngine::new()?;
 
     // Load Registry
-    let registry_content =
-        fs::read_to_string("registry.toml").context("Could not read registry.toml")?;
-    let registry: Registry = toml::from_str(&registry_content)?;
+    let registry_path = engine.get_registry_path();
+    let registry: Registry = if registry_path.exists() {
+        let content = fs::read_to_string(&registry_path)?;
+        toml::from_str(&content).context("Failed to parse registry.toml")?
+    } else {
+        // If the file is missing, we return an empty registry or auto-update.
+        if matches!(cli.command, Commands::Update) {
+            // If they are running update, that's fine, return empty for now
+            Registry {
+                packages: std::collections::HashMap::new(),
+            }
+        } else {
+            println!(
+                "{} Registry not found. Please run 'rush update' first.",
+                "Warning:".yellow()
+            );
+            return Ok(());
+        }
+    };
 
     // DETECT SYSTEM ARCHITECTURE
     // e.g., "x86_64-linux" or "aarch64-apple-darwin"
@@ -33,7 +49,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-        
+
         Commands::Search => {
             println!("{} ({}):", "Available Packages".bold(), current_target);
             let mut keys: Vec<_> = registry.packages.keys().collect();
@@ -105,8 +121,9 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Update => println!("{} Registry reloaded.", "Success:".green()),
-        
+        Commands::Update => {
+            engine.update_registry()?;
+        }
     }
 
     Ok(())

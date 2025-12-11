@@ -7,6 +7,10 @@ use std::fs::{self, File};
 use std::path::PathBuf;
 use tar::Archive;
 
+/// Default URL to fetch the registry from, overridable by env variable
+const DEFAULT_REGISTRY_URL: &str =
+    "https://raw.githubusercontent.com/ekourtakis/rush/main/registry.toml";
+
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
@@ -140,5 +144,35 @@ impl RushEngine {
             println!("{} Package '{}' is not installed", "Error:".red(), name);
         }
         Ok(())
+    }
+
+    /// Download the registry from the internet and save it locally
+    pub fn update_registry(&self) -> Result<()> {
+        let registry_url =
+            std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+
+        println!("{} from {}...", "Fetching registry".cyan(), registry_url);
+
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("rush/1.0")
+            .build()?;
+
+        let response = client.get(registry_url).send()?.error_for_status()?;
+        let content = response.text()?;
+
+        let registry_path = self.state_path.parent().unwrap().join("registry.toml");
+        fs::write(&registry_path, content)?;
+
+        println!(
+            "{} Registry saved to {:?}",
+            "Success:".green(),
+            registry_path
+        );
+        Ok(())
+    }
+
+    /// Get the path to the local registry file
+    pub fn get_registry_path(&self) -> PathBuf {
+        self.state_path.parent().unwrap().join("registry.toml")
     }
 }

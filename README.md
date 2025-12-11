@@ -2,7 +2,7 @@
 
 **A lightning-fast toy package manager.**
 
-rush is a proof-of-concept package manager written in Rust. It demonstrates how to manage static binaries, handle dependencies via a registry, and manage state—all without the overhead of interpreted languages.
+rush is a proof-of-concept package manager written in Rust. It demonstrates how to manage static binaries, handle dependencies via a registry, and manage state.
 
 ## Prerequisites
 
@@ -73,4 +73,13 @@ rush upgrade
 
 # Remove it
 rush uninstall ripgrep
+```
+
+### Configuration
+
+By default, rush uses the default registry hosted on this GitHub repo. You can override this by setting the `RUSH_REGISTRY_URL` environment variable.
+
+```bash
+export RUSH_REGISTRY_URL="https://some/other/url/registry.toml"
+rush update
 ```
