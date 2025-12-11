@@ -2,14 +2,16 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
+use std::path::PathBuf;
 use tar::Archive;
 
 // CLI structure
 #[derive(Parser)]
 #[command(name = "rush")]
-#[command(about = "A lightning-fast package manager", long_about = None)]
+#[command(about = "A lightning-fast toy package manager.", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -21,141 +23,206 @@ enum Commands {
     Install { name: String },
     /// Uninstall a package
     Uninstall { name: String },
-    /// List available packages
+    /// List installed packages
     List,
+    /// Search for available packages
+    Search,
 }
 
-struct Package {
+struct PackageRecipe {
     url: &'static str,
     binary_name: &'static str,
+    version: &'static str,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct InstalledPackage {
+    version: String,
+    binaries: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct State {
+    packages: HashMap<String, InstalledPackage>,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    let mut state = StateManager::load()?;
 
     // Registry hardcoded for now
     let mut registry = HashMap::new();
-    registry.insert("fzf", Package {
+    registry.insert("fzf", PackageRecipe {
         url: "https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_amd64.tar.gz",
         binary_name: "fzf",
+        version: "0.56.3",
     });
-    registry.insert("ripgrep", Package {
+    registry.insert("ripgrep", PackageRecipe {
         url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
         binary_name: "rg",
-    });
-    registry.insert("fd", Package {
-        url: "https://github.com/sharkdp/fd/releases/download/v10.1.0/fd-v10.1.0-x86_64-unknown-linux-musl.tar.gz",
-        binary_name: "fd",
+        version: "14.1.0",
     });
 
     match &cli.command {
         Commands::List => {
-            println!("Available packages:");
-            for (name, _) in registry {
-                println!(" - {}", name);
+            println!("Installed Packages:");
+            if state.data.packages.is_empty() {
+                println!("   (No packages installed)");
+            } else {
+                for (name, pkg) in &state.data.packages {
+                    println!(" - {} (v{})", name, pkg.version);
+                }
             }
-            Ok(())
         }
+
+        Commands::Search => {
+            println!("🔍 Available Packages in Registry:");
+            // We iterate over the REGISTRY, not the state
+            let mut packages: Vec<_> = registry.keys().collect();
+            packages.sort(); // Sort them alphabetically
+
+            for name in packages {
+                let recipe = registry.get(name).unwrap();
+                println!(" - {} (v{})", name, recipe.version);
+            }
+        }
+
         Commands::Install { name } => {
-            if let Some(pkg) = registry.get(name.as_str()) {
-                install_package(pkg, name)
+            if state.data.packages.contains_key(name) {
+                println!("⚠️  {} is already installed!", name);
+                return Ok(());
+            }
+
+            if let Some(recipe) = registry.get(name.as_str()) {
+                install_package(recipe, name)?;
+                // SAVE STATE
+                state.data.packages.insert(
+                    name.clone(),
+                    InstalledPackage {
+                        version: recipe.version.to_string(),
+                        binaries: vec![recipe.binary_name.to_string()],
+                    },
+                );
+                state.save()?;
             } else {
-                Err(anyhow::anyhow!("Package '{}' not found in registry.", name))
+                println!("❌ Package '{}' not found in registry.", name);
             }
         }
+
         Commands::Uninstall { name } => {
-            if let Some(pkg) = registry.get(name.as_str()) {
-                uninstall_package(pkg, name)
+            // LOOK UP STATE FIRST
+            if let Some(installed) = state.data.packages.get(name) {
+                uninstall_package(installed, name)?;
+                // REMOVE FROM STATE
+                state.data.packages.remove(name);
+                state.save()?;
             } else {
-                Err(anyhow::anyhow!(
-                    "Package '{}' not found in registry. Cannot determine binary name to delete.",
-                    name
-                ))
+                println!("❌ Package '{}' is not installed.", name);
             }
         }
+    }
+    Ok(())
+}
+
+// --- STATE MANAGEMENT ---
+struct StateManager {
+    data: State,
+    path: PathBuf,
+}
+
+impl StateManager {
+    fn load() -> Result<Self> {
+        let home = dirs::home_dir().context("No home dir")?;
+        let state_dir = home.join(".local/share/rush");
+        let state_file = state_dir.join("installed.json");
+
+        if !state_dir.exists() {
+            fs::create_dir_all(&state_dir)?;
+        }
+
+        let data = if state_file.exists() {
+            let content = fs::read_to_string(&state_file)?;
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            State::default()
+        };
+
+        Ok(Self {
+            data,
+            path: state_file,
+        })
+    }
+
+    fn save(&self) -> Result<()> {
+        let content = serde_json::to_string_pretty(&self.data)?;
+        fs::write(&self.path, content)?;
+        Ok(())
     }
 }
 
-fn install_package(pkg: &Package, name: &str) -> Result<()> {
-    println!("Rush: Installing {}...", name);
+// --- INSTALL/UNINSTALL LOGIC ---
 
-    let home_dir = dirs::home_dir().context("Could not find home directory")?;
+fn install_package(recipe: &PackageRecipe, name: &str) -> Result<()> {
+    println!("Installing {} (v{})...", name, recipe.version);
+
+    let home_dir = dirs::home_dir().unwrap();
     let install_dir = home_dir.join(".local/bin");
-    if !install_dir.exists() {
-        fs::create_dir_all(&install_dir)?;
-    }
+    fs::create_dir_all(&install_dir)?;
 
-    println!("  Downloading...");
-    let response = reqwest::blocking::get(pkg.url)?;
+    // Download
+    let response = reqwest::blocking::get(recipe.url)?;
     let total_size = response.content_length().unwrap_or(0);
 
     let pb = ProgressBar::new(total_size);
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes}")?,
+    );
 
     let content = response.bytes()?;
-    pb.finish_with_message("Downloaded");
+    pb.finish();
 
-    println!(" Extracting...");
+    // Extract
     let tar = GzDecoder::new(&content[..]);
     let mut archive = Archive::new(tar);
-
-    let mut found = false;
 
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
-
-        // IMPROVED: Check if the filename matches (ignores folders in the tarball)
-        if let Some(filename) = path.file_name() {
-            if filename == pkg.binary_name {
-                let target_path = install_dir.join(pkg.binary_name);
-
-                let mut outfile = File::create(&target_path)?;
-                std::io::copy(&mut entry, &mut outfile)?;
+        if let Some(fname) = path.file_name() {
+            if fname == recipe.binary_name {
+                let target = install_dir.join(recipe.binary_name);
+                let mut out = File::create(&target)?;
+                std::io::copy(&mut entry, &mut out)?;
 
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let mut perms = fs::metadata(&target_path)?.permissions();
-                    perms.set_mode(0o755);
-                    fs::set_permissions(&target_path, perms)?;
+                    let mut p = fs::metadata(&target)?.permissions();
+                    p.set_mode(0o755);
+                    fs::set_permissions(&target, p)?;
                 }
-
-                println!("✨ Installed to {:?}", target_path);
-                found = true;
-                break;
+                println!("Installed to {:?}", target);
+                return Ok(());
             }
         }
     }
-
-    if !found {
-        Err(anyhow::anyhow!(
-            "Binary '{}' not found inside the archive",
-            pkg.binary_name
-        ))
-    } else {
-        Ok(())
-    }
+    Err(anyhow::anyhow!("Binary not found"))
 }
 
-fn uninstall_package(pkg: &Package, name: &str) -> Result<()> {
-    let home_dir = dirs::home_dir().context("Could not find home directory")?;
-    let target_path = home_dir.join(".local/bin").join(pkg.binary_name);
+fn uninstall_package(pkg: &InstalledPackage, name: &str) -> Result<()> {
+    let home_dir = dirs::home_dir().unwrap();
+    let bin_dir = home_dir.join(".local/bin");
 
     println!("Uninstalling {}...", name);
 
-    if target_path.exists() {
-        fs::remove_file(&target_path).context(format!("Failed to delete {:?}", target_path))?;
-
-        println!("✅ Removed binary: {:?}", target_path);
-        Ok(())
-    } else {
-        println!(
-            "⚠️  Package '{}' was not installed (Binary {:?} not found).",
-            name, target_path
-        );
-        Ok(())
+    for binary in &pkg.binaries {
+        let target = bin_dir.join(binary);
+        if target.exists() {
+            fs::remove_file(&target)?;
+            println!("   - Deleted {:?}", target);
+        }
     }
+    println!("Uninstalled complete.");
+    Ok(())
 }
