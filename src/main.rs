@@ -1,7 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use colored::*;
-use std::fs;
 
 use rush::cli::{Cli, Commands};
 use rush::core::RushEngine;
@@ -14,23 +13,23 @@ fn main() -> Result<()> {
     let mut engine = RushEngine::new()?;
 
     // Load Registry
-    let registry_path = engine.get_registry_path();
-    let registry: Registry = if registry_path.exists() {
-        let content = fs::read_to_string(&registry_path)?;
-        toml::from_str(&content).context("Failed to parse registry.toml")?
-    } else {
-        // If the file is missing, we return an empty registry or auto-update.
-        if matches!(cli.command, Commands::Update) {
-            // If they are running update, that's fine, return empty for now
-            Registry {
-                packages: std::collections::HashMap::new(),
+    let registry = match engine.load_registry() {
+        Ok(reg) => reg,
+        Err(_) => {
+            // If the file is missing, handle it gracefully
+            if matches!(cli.command, Commands::Update) {
+                // If the user is running 'update', we don't need the old registry.
+                // Return an empty one to satisfy the compiler.
+                Registry {
+                    packages: std::collections::HashMap::new(),
+                }
+            } else {
+                println!(
+                    "{} Registry not found. Please run 'rush update' first.",
+                    "Warning:".yellow()
+                );
+                return Ok(());
             }
-        } else {
-            println!(
-                "{} Registry not found. Please run 'rush update' first.",
-                "Warning:".yellow()
-            );
-            return Ok(());
         }
     };
 

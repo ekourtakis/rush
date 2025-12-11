@@ -1,8 +1,9 @@
-use crate::models::{InstalledPackage, State, TargetDefinition};
+use crate::models::{InstalledPackage, Registry, State, TargetDefinition};
 use anyhow::{Context, Result};
 use colored::*;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::path::PathBuf;
 use tar::Archive;
@@ -60,9 +61,8 @@ impl RushEngine {
             .user_agent("rush/1.0")
             .build()?;
 
-        // Check for HTTP errors (404, 403) ---
+        // Check for HTTP errors (404, 403)
         let response = client.get(&target.url).send()?.error_for_status()?;
-
         let len = response.content_length().unwrap_or(0);
 
         let pb = ProgressBar::new(len);
@@ -71,11 +71,27 @@ impl RushEngine {
                 .template("{spinner:.green} [{bar:40}] {bytes}/{total_bytes}")?,
         );
 
-        // Stream the bytes
+        // DOWNLOAD
         let content = response.bytes()?;
         pb.finish();
 
-        // Extract
+        // VERIFY CHECKSUM
+        println!("{}", "Verifying checksum...".cyan());
+
+        let mut hasher = Sha256::new();
+        hasher.update(&content);
+        let hash = hex::encode(hasher.finalize());
+
+        if hash != target.sha256 {
+            println!("{} Hash mismatch!", "Error:".red());
+            println!("  Expected: {}", target.sha256);
+            println!("  Got:      {}", hash);
+            anyhow::bail!("Security check failed: Checksum mismatch");
+        }
+
+        println!("{}", "Checksum Verified.".green());
+
+        // EXTRACT
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
@@ -97,7 +113,6 @@ impl RushEngine {
                         fs::set_permissions(&dest, p)?;
                     }
 
-                    // Success Message
                     println!("{} Installed to {:?}", "Success:".green(), dest);
                     found = true;
                 }
@@ -105,7 +120,6 @@ impl RushEngine {
         }
 
         if !found {
-            // Error Message
             println!("{}", "Error: Binary not found in archive".red());
             anyhow::bail!("Binary missing");
         }
@@ -146,20 +160,32 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download the registry from the internet and save it locally
+    /// Download the registry from the internet OR copy it from a local file
     pub fn update_registry(&self) -> Result<()> {
+        // 1. Determine the source (Env var or Default)
         let registry_url =
             std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
 
         println!("{} from {}...", "Fetching registry".cyan(), registry_url);
 
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("rush/1.0")
-            .build()?;
+        let content = if registry_url.starts_with("http") {
+            // Case A: It's a URL (Download it)
+            let client = reqwest::blocking::Client::builder()
+                .user_agent("rush/1.0")
+                .build()?;
 
-        let response = client.get(registry_url).send()?.error_for_status()?;
-        let content = response.text()?;
+            let response = client.get(&registry_url).send()?.error_for_status()?;
+            response.text()?
+        } else {
+            // Case B: It's a Local File (Read it)
+            let path = PathBuf::from(&registry_url);
+            if !path.exists() {
+                anyhow::bail!("Local registry file not found: {:?}", path);
+            }
+            fs::read_to_string(&path)?
+        };
 
+        // 2. Save it to our cache (~/.local/share/rush/registry.toml)
         let registry_path = self.state_path.parent().unwrap().join("registry.toml");
         fs::write(&registry_path, content)?;
 
@@ -171,7 +197,23 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Get the path to the local registry file
+    /// Attempt to load the registry from disk.
+    /// Returns an error if the file doesn't exist.
+    pub fn load_registry(&self) -> Result<Registry> {
+        let path = self.get_registry_path();
+
+        if !path.exists() {
+            anyhow::bail!("Registry not found");
+        }
+
+        let content = fs::read_to_string(&path)?;
+        let registry: Registry =
+            toml::from_str(&content).context("Failed to parse registry.toml")?;
+
+        Ok(registry)
+    }
+
+    /// Helper to get the path where the registry is cached
     pub fn get_registry_path(&self) -> PathBuf {
         self.state_path.parent().unwrap().join("registry.toml")
     }

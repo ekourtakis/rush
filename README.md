@@ -83,3 +83,5 @@ By default, rush uses the default registry hosted on this GitHub repo. You can o
 export RUSH_REGISTRY_URL="https://some/other/url/registry.toml"
 rush update
 ```
+
+`RUSH_REGISTRY_URL` may also be a valid path to a `toml` file.

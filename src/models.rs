@@ -17,6 +17,7 @@ pub struct PackageDefinition {
 pub struct TargetDefinition {
     pub url: String,
     pub bin: String,
+    pub sha256: String,
 }
 
 // --- STATE DATA ---
