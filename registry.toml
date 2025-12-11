@@ -1,0 +1,23 @@
+[packages.fzf]
+version = "0.56.3"
+description = "A command-line fuzzy finder"
+
+[packages.fzf.targets.x86_64-linux]
+url = "https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_amd64.tar.gz"
+bin = "fzf"
+
+[packages.fzf.targets.aarch64-apple-darwin]
+url = "https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-darwin_arm64.tar.gz"
+bin = "fzf"
+
+[packages.ripgrep]
+version = "14.1.0"
+description = "Recursively searches directories for a regex pattern"
+
+[packages.ripgrep.targets.x86_64-linux]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
+bin = "rg"
+
+[packages.ripgrep.targets.aarch64-apple-darwin]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-aarch64-apple-darwin.tar.gz"
+bin = "rg"
