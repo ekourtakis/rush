@@ -81,7 +81,7 @@ impl RushEngine {
     ) -> Result<()> {
         println!("{} {} (v{})...", "Installing".cyan(), name, version);
 
-        // Check for HTTP errors
+        // 1. Download & Verify
         let response = self.client.get(&target.url).send()?.error_for_status()?;
         let len = response.content_length().unwrap_or(0);
 
@@ -95,48 +95,22 @@ impl RushEngine {
         let content = response.bytes()?;
         pb.finish();
 
-        // VERIFY CHECKSUM
         println!("{}", "Verifying checksum...".cyan());
         Self::verify_checksum(&content, &target.sha256)?;
         println!("{}", "Checksum Verified.".green());
 
-        // EXTRACT
+        // 2. Extract
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-            let path = entry.path()?;
-            if let Some(fname) = path.file_name() {
-                if fname == std::ffi::OsStr::new(&target.bin) {
-                    let dest = self.bin_path.join(&target.bin);
 
-                    // --- ATOMIC INSTALL START ---
-                    // 1. Create a temp file in the same directory (ensures atomic rename is possible)
-                    let mut temp_file = tempfile::Builder::new()
-                        .prefix(".rush-tmp-")
-                        .tempfile_in(&self.bin_path)?;
-
-                    // 2. Write data to the temp file
-                    std::io::copy(&mut entry, &mut temp_file)?;
-
-                    // 3. Set permissions on the temp file
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let mut p = temp_file.as_file().metadata()?.permissions();
-                        p.set_mode(0o755);
-                        temp_file.as_file().set_permissions(p)?;
-                    }
-
-                    // 4. Atomically persist (rename) the file to the final destination
-                    // This replaces the old binary instantly.
-                    temp_file.persist(&dest)?;
-
-                    println!("{} Installed to {:?}", "Success:".green(), dest);
-                    found = true;
-                }
+            // Returns true if it extracted the file
+            if self.try_extract_binary(&mut entry, &target.bin)? {
+                found = true;
+                break; // Stop scanning the tarball once we find the binary
             }
         }
 
@@ -145,7 +119,7 @@ impl RushEngine {
             anyhow::bail!("Binary missing in archive");
         }
 
-        // Update State
+        // 3. Update State
         self.state.packages.insert(
             name.to_string(),
             InstalledPackage {
@@ -156,6 +130,50 @@ impl RushEngine {
         self.save()?;
 
         Ok(())
+    }
+
+    /// Helper for `install_package()`: Checks if the current tar entry is the binary we want.
+    /// If yes, performs the atomic install and returns `true`.
+    /// If no, returns `false`.
+    fn try_extract_binary<R: std::io::Read>(
+        &self,
+        entry: &mut tar::Entry<R>,
+        target_bin_name: &str,
+    ) -> Result<bool> {
+        let path = entry.path()?;
+
+        // Guard Clause 1: Check if filename exists
+        let fname = match path.file_name() {
+            Some(f) => f,
+            None => return Ok(false),
+        };
+
+        // Guard Clause 2: Check if filename matches target
+        if fname != std::ffi::OsStr::new(target_bin_name) {
+            return Ok(false);
+        }
+
+        // --- ATOMIC INSTALL LOGIC ---
+        let dest = self.bin_path.join(target_bin_name);
+
+        let mut temp_file = tempfile::Builder::new()
+            .prefix(".rush-tmp-")
+            .tempfile_in(&self.bin_path)?;
+
+        std::io::copy(entry, &mut temp_file)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut p = temp_file.as_file().metadata()?.permissions();
+            p.set_mode(0o755);
+            temp_file.as_file().set_permissions(p)?;
+        }
+
+        temp_file.persist(&dest)?;
+        println!("{} Installed to {:?}", "Success:".green(), dest);
+
+        Ok(true)
     }
 
     /// Verify checksum of given content against expected hash
