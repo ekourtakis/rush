@@ -15,17 +15,33 @@ const DEFAULT_REGISTRY_URL: &str =
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
-    state_path: PathBuf,
+    state_path: PathBuf,    // ~/.local/share/rush/installed.json
+    registry_path: PathBuf, // ~/.local/share/rush/registry.toml
+    bin_path: PathBuf,      // ~/.local/bin
 }
 
 impl RushEngine {
     /// Load the engine and state from disk
-    pub fn new() -> Result<Self> {
-        let home = dirs::home_dir().context("No home dir")?;
-        let state_dir = home.join(".local/share/rush");
-        fs::create_dir_all(&state_dir)?;
+    /// If `root` is None, it uses the real system home directory
+    /// If `root` is Some(path), it uses that path (For Testing)
+    pub fn new(root: Option<PathBuf>) -> Result<Self> {
+        // Determine the root (Real Home or Mock Temp)
+        let home = match root {
+            Some(p) => p,
+            None => dirs::home_dir().context("No home dir")?,
+        };
 
+        // Define standard paths based on that root
+        let state_dir = home.join(".local/share/rush");
+        let bin_path = home.join(".local/bin");
         let state_path = state_dir.join("installed.json");
+        let registry_path = state_dir.join("registry.toml");
+
+        // Ensure directories exist
+        fs::create_dir_all(&state_dir)?;
+        fs::create_dir_all(&bin_path)?;
+
+        // Load State
         let state = if state_path.exists() {
             let content = fs::read_to_string(&state_path)?;
             serde_json::from_str(&content).unwrap_or_default()
@@ -33,7 +49,12 @@ impl RushEngine {
             State::default()
         };
 
-        Ok(Self { state, state_path })
+        Ok(Self {
+            state,
+            state_path,
+            registry_path,
+            bin_path,
+        })
     }
 
     /// Save state to disk
@@ -43,7 +64,6 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download and Install a package
     pub fn install_package(
         &mut self,
         name: &str,
@@ -51,10 +71,6 @@ impl RushEngine {
         target: &TargetDefinition,
     ) -> Result<()> {
         println!("{} {} (v{})...", "Installing".cyan(), name, version);
-
-        let home = dirs::home_dir().context("No home dir")?;
-        let install_dir = home.join(".local/bin");
-        fs::create_dir_all(&install_dir)?;
 
         // Create a proper Client with a User-Agent
         let client = reqwest::blocking::Client::builder()
@@ -101,7 +117,8 @@ impl RushEngine {
             let path = entry.path()?;
             if let Some(fname) = path.file_name() {
                 if fname == std::ffi::OsStr::new(&target.bin) {
-                    let dest = install_dir.join(&target.bin);
+                    // Use stored bin path
+                    let dest = self.bin_path.join(&target.bin);
                     let mut out = File::create(&dest)?;
                     std::io::copy(&mut entry, &mut out)?;
 
@@ -140,11 +157,10 @@ impl RushEngine {
     pub fn uninstall_package(&mut self, name: &str) -> Result<()> {
         if let Some(pkg) = self.state.packages.get(name) {
             println!("{} {}...", "Uninstalling".cyan(), name);
-            let home = dirs::home_dir().unwrap();
-            let bin_dir = home.join(".local/bin");
 
             for binary in &pkg.binaries {
-                let p = bin_dir.join(binary);
+                // Use stored bin path
+                let p = self.bin_path.join(binary);
                 if p.exists() {
                     fs::remove_file(&p)?;
                     println!("   - Deleted {:?}", p);
@@ -185,36 +201,112 @@ impl RushEngine {
             fs::read_to_string(&path)?
         };
 
-        // 2. Save it to our cache (~/.local/share/rush/registry.toml)
-        let registry_path = self.state_path.parent().unwrap().join("registry.toml");
-        fs::write(&registry_path, content)?;
+        // Save it to our cache, use stored registry path
+        fs::write(&self.registry_path, content)?;
 
         println!(
             "{} Registry saved to {:?}",
             "Success:".green(),
-            registry_path
+            self.registry_path
         );
         Ok(())
     }
 
-    /// Attempt to load the registry from disk.
-    /// Returns an error if the file doesn't exist.
     pub fn load_registry(&self) -> Result<Registry> {
-        let path = self.get_registry_path();
-
-        if !path.exists() {
+        // USE STORED REGISTRY PATH
+        if !self.registry_path.exists() {
             anyhow::bail!("Registry not found");
         }
 
-        let content = fs::read_to_string(&path)?;
+        let content = fs::read_to_string(&self.registry_path)?;
         let registry: Registry =
             toml::from_str(&content).context("Failed to parse registry.toml")?;
 
         Ok(registry)
     }
 
-    /// Helper to get the path where the registry is cached
     pub fn get_registry_path(&self) -> PathBuf {
-        self.state_path.parent().unwrap().join("registry.toml")
+        self.registry_path.clone()
+    }
+}
+
+// --- TESTS ---
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_engine_initialization() {
+        // 1. Create a fake computer
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // 2. Start engine
+        // Rename to _engine so Rust knows we aren't using it later
+        let _engine = RushEngine::new(Some(root.clone())).unwrap();
+
+        // 3. Check if it created the folder structure in the temp dir
+        assert!(root.join(".local/share/rush").exists());
+        assert!(root.join(".local/bin").exists());
+    }
+
+    #[test]
+    fn test_state_persistence() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // 1. Open Engine, Add a fake package, Save
+        {
+            let mut engine = RushEngine::new(Some(root.clone())).unwrap();
+            engine.state.packages.insert(
+                "fake-pkg".to_string(),
+                InstalledPackage {
+                    version: "1.0.0".to_string(),
+                    binaries: vec!["fake-bin".to_string()],
+                },
+            );
+            engine.save().unwrap();
+        } // Engine drops here
+
+        // 2. Open NEW Engine from same root
+        let engine = RushEngine::new(Some(root.clone())).unwrap();
+
+        // 3. Verify it remembered the package
+        assert!(engine.state.packages.contains_key("fake-pkg"));
+        assert_eq!(engine.state.packages["fake-pkg"].version, "1.0.0");
+    }
+
+    #[test]
+    fn test_local_registry_update() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // 1. Create a dummy registry file
+        let dummy_registry_path = root.join("dummy_registry.toml");
+        fs::write(
+            &dummy_registry_path,
+            r#"
+            [packages.test-tool]
+            version = "0.0.1"
+            targets = {}
+        "#,
+        )
+        .unwrap();
+
+        // 2. Point env var to it
+        // We use unsafe here because setting Env Vars in tests can be racey.
+        // For this simple test suite, it is acceptable.
+        unsafe {
+            std::env::set_var("RUSH_REGISTRY_URL", dummy_registry_path.to_str().unwrap());
+        }
+
+        // 3. Run Update
+        let engine = RushEngine::new(Some(root.clone())).unwrap();
+        engine.update_registry().unwrap();
+
+        // 4. Check if it copied the file to the internal cache
+        let cached_reg = engine.load_registry().unwrap();
+        assert!(cached_reg.packages.contains_key("test-tool"));
     }
 }

@@ -10,7 +10,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize Engine
-    let mut engine = RushEngine::new()?;
+    let mut engine = RushEngine::new(None)?;
 
     // Load Registry
     let registry = match engine.load_registry() {
