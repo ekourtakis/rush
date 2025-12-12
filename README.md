@@ -50,6 +50,7 @@ Once installed, you can use the `rush` command.
 | **`rush upgrade`** | Check for newer versions in the registry and upgrade installed tools |
 | **`rush uninstall <name>`** | Remove a package and delete its binary |
 | **`rush update`** | Reload the registry file |
+| **`rush clean`** | Remove temporary files from failed installs |
 
 If you haven't built the binary, you can use cargo run with all commands, e.g.: `cargo run -- install <name>`.
 

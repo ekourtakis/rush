@@ -257,7 +257,7 @@ impl RushEngine {
         self.registry_path.clone()
     }
 
-    // Remove temporary files from failed installs
+    /// Remove temporary files from failed installs
     pub fn clean_trash(&self) -> Result<()> {
         // Read the bin directory
         // We use read_dir which returns an iterator over entries
@@ -268,13 +268,14 @@ impl RushEngine {
             let entry = entry?;
             let path = entry.path();
 
-            // Check if it looks like one of our temp files
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with(".rush-tmp-") {
-                    std::fs::remove_file(&path)?;
-                    println!("{} {:?}", "Deleted trash:".yellow(), name);
-                    count += 1;
-                }
+            if let Some(name) = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| n.starts_with(".rush-tmp-"))
+            {
+                std::fs::remove_file(&path)?;
+                println!("{} {:?}", "Deleted trash:".yellow(), name);
+                count += 1;
             }
         }
 
