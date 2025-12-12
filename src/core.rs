@@ -263,6 +263,7 @@ impl RushEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use std::io::Cursor;
 
     #[test]
     fn test_engine_initialization() {
@@ -271,6 +272,8 @@ mod tests {
         let _engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(root.join(".local/share/rush").exists());
     }
+
+    // -- install_package() tests --
 
     #[test]
     fn test_verify_checksum_logic() {
@@ -284,6 +287,76 @@ mod tests {
 
         // Should fail
         assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
+    }
+
+    #[test]
+    fn test_try_extract_binary_success() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+
+        // 1. Create a fake tarball in memory
+        let mut header = tar::Header::new_gnu();
+        header.set_size(12);
+        header.set_path("test-bin").unwrap();
+        header.set_cksum();
+
+        let mut data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut data);
+            builder.append(&header, &b"fake content"[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        // 2. Read the tarball and attempt extraction
+        let cursor = Cursor::new(data);
+        let mut archive = Archive::new(cursor);
+        let mut entries = archive.entries().unwrap();
+        let mut entry = entries.next().unwrap().unwrap();
+
+        let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
+
+        // 3. Assertions
+        assert!(result, "Should have extracted the binary");
+        let expected_path = root.join(".local/bin/test-bin");
+        assert!(expected_path.exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(expected_path).unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o111, 0o111, "Should be executable");
+        }
+    }
+
+    #[test]
+    fn test_try_extract_binary_mismatch() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+
+        // Create a tarball with a different filename
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_path("wrong-name").unwrap();
+        header.set_cksum();
+
+        let mut data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut data);
+            builder.append(&header, &b""[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let cursor = Cursor::new(data);
+        let mut archive = Archive::new(cursor);
+        let mut entries = archive.entries().unwrap();
+        let mut entry = entries.next().unwrap().unwrap();
+
+        let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
+
+        assert!(!result, "Should not have extracted mismatched filename");
+        assert!(!root.join(".local/bin/test-bin").exists());
     }
 
     #[test]
@@ -306,6 +379,8 @@ mod tests {
         let engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(engine.state.packages.contains_key("fake-pkg"));
     }
+
+    // -- uninstall_package() tests --
 
     #[test]
     fn test_uninstall_deletes_files() {
@@ -341,6 +416,8 @@ mod tests {
         let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
     }
+
+    // -- update_registry() tests --
 
     #[test]
     fn test_local_registry_update() {
