@@ -29,14 +29,11 @@ You can compile and install the `rush` binary directly into your local user path
     ```
 
 3. **Update your PATH (if needed):**
-    Ensure `~/.local/bin` is in your shell's path so you can run `rush` from anywhere.
+    Ensure `~/.local/bin` is in your shell's path so you can run `rush` and packages you install with it from anywhere.
 
     ```bash
     export PATH="$HOME/.local/bin:$PATH"
     ```
-
-> **Important Note:**
-> Currently, Rush looks for `registry.toml` in your **current working directory**. To use Rush effectively, ensure a `registry.toml` file exists in the folder you are running commands from.
 
 ## Usage
 
