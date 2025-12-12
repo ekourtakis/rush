@@ -123,6 +123,8 @@ fn main() -> Result<()> {
         Commands::Update => {
             engine.update_registry()?;
         }
+
+        Commands::Clean => engine.clean_trash()?,
     }
 
     Ok(())

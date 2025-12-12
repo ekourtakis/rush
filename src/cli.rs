@@ -10,7 +10,7 @@ pub struct Cli {
     pub command: Commands,
 }
 
-#[derive(Subcommand, Debug, PartialEq)] // Added Debug, PartialEq
+#[derive(Subcommand, Debug, PartialEq)]
 pub enum Commands {
     /// Install a package
     Install { name: String },
@@ -24,6 +24,8 @@ pub enum Commands {
     Update,
     /// Upgrade all installed packages
     Upgrade,
+    /// Remove temporary files from failed installs
+    Clean,
 }
 
 // --- TESTS ---

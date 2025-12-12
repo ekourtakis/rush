@@ -256,6 +256,32 @@ impl RushEngine {
     pub fn get_registry_path(&self) -> PathBuf {
         self.registry_path.clone()
     }
+
+    pub fn clean_trash(&self) -> Result<()> {
+        let bin_dir = std::fs::read_dir(&self.bin_path)?;
+        let mut count = 0;
+
+        for entry in bin_dir {
+            let entry = entry?;
+            let path = entry.path();
+            
+            // Check if it looks like one of our temp files
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with(".rush-tmp-") {
+                    std::fs::remove_file(&path)?;
+                    println!("Deleted trash: {:?}", name);
+                    count += 1;
+                }
+            }
+        }
+        
+        if count == 0 {
+            println!("No trash found. System is clean.");
+        } else {
+            println!("Cleaned {} temporary files.", count);
+        }
+        Ok(())
+    }
 }
 
 // --- TESTS ---
