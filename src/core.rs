@@ -15,17 +15,34 @@ const DEFAULT_REGISTRY_URL: &str =
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
-    state_path: PathBuf,
+    state_path: PathBuf,               // ~/.local/share/rush/installed.json
+    registry_path: PathBuf,            // ~/.local/share/rush/registry.toml
+    bin_path: PathBuf,                 // ~/.local/bin
+    client: reqwest::blocking::Client, // HTTP Client
 }
 
 impl RushEngine {
-    /// Load the engine and state from disk
+    /// Standard constructor
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("No home dir")?;
-        let state_dir = home.join(".local/share/rush");
-        fs::create_dir_all(&state_dir)?;
+        Self::init(home)
+    }
 
+    /// Test constructor (dependency injection)
+    pub fn with_root(root: PathBuf) -> Result<Self> {
+        Self::init(root)
+    }
+
+    /// Internal initializer
+    fn init(root: PathBuf) -> Result<Self> {
+        let state_dir = root.join(".local/share/rush");
+        let bin_path = root.join(".local/bin");
         let state_path = state_dir.join("installed.json");
+        let registry_path = state_dir.join("registry.toml");
+
+        fs::create_dir_all(&state_dir)?;
+        fs::create_dir_all(&bin_path)?;
+
         let state = if state_path.exists() {
             let content = fs::read_to_string(&state_path)?;
             serde_json::from_str(&content).unwrap_or_default()
@@ -33,7 +50,18 @@ impl RushEngine {
             State::default()
         };
 
-        Ok(Self { state, state_path })
+        // Initialize Client
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(concat!("rush/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+
+        Ok(Self {
+            state,
+            state_path,
+            registry_path,
+            bin_path,
+            client,
+        })
     }
 
     /// Save state to disk
@@ -43,7 +71,6 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download and Install a package
     pub fn install_package(
         &mut self,
         name: &str,
@@ -52,17 +79,8 @@ impl RushEngine {
     ) -> Result<()> {
         println!("{} {} (v{})...", "Installing".cyan(), name, version);
 
-        let home = dirs::home_dir().context("No home dir")?;
-        let install_dir = home.join(".local/bin");
-        fs::create_dir_all(&install_dir)?;
-
-        // Create a proper Client with a User-Agent
-        let client = reqwest::blocking::Client::builder()
-            .user_agent("rush/1.0")
-            .build()?;
-
-        // Check for HTTP errors (404, 403)
-        let response = client.get(&target.url).send()?.error_for_status()?;
+        // Check for HTTP errors
+        let response = self.client.get(&target.url).send()?.error_for_status()?;
         let len = response.content_length().unwrap_or(0);
 
         let pb = ProgressBar::new(len);
@@ -77,18 +95,7 @@ impl RushEngine {
 
         // VERIFY CHECKSUM
         println!("{}", "Verifying checksum...".cyan());
-
-        let mut hasher = Sha256::new();
-        hasher.update(&content);
-        let hash = hex::encode(hasher.finalize());
-
-        if hash != target.sha256 {
-            println!("{} Hash mismatch!", "Error:".red());
-            println!("  Expected: {}", target.sha256);
-            println!("  Got:      {}", hash);
-            anyhow::bail!("Security check failed: Checksum mismatch");
-        }
-
+        Self::verify_checksum(&content, &target.sha256)?;
         println!("{}", "Checksum Verified.".green());
 
         // EXTRACT
@@ -101,7 +108,7 @@ impl RushEngine {
             let path = entry.path()?;
             if let Some(fname) = path.file_name() {
                 if fname == std::ffi::OsStr::new(&target.bin) {
-                    let dest = install_dir.join(&target.bin);
+                    let dest = self.bin_path.join(&target.bin);
                     let mut out = File::create(&dest)?;
                     std::io::copy(&mut entry, &mut out)?;
 
@@ -121,7 +128,7 @@ impl RushEngine {
 
         if !found {
             println!("{}", "Error: Binary not found in archive".red());
-            anyhow::bail!("Binary missing");
+            anyhow::bail!("Binary missing in archive");
         }
 
         // Update State
@@ -137,14 +144,27 @@ impl RushEngine {
         Ok(())
     }
 
+    /// Verify checksum of given content against expected hash
+    fn verify_checksum(content: &[u8], expected_hash: &str) -> Result<()> {
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let hash = hex::encode(hasher.finalize());
+
+        if hash != expected_hash {
+            println!("{} Hash mismatch!", "Error:".red());
+            println!("  Expected: {}", expected_hash);
+            println!("  Got:      {}", hash);
+            anyhow::bail!("Security check failed: Checksum mismatch");
+        }
+        Ok(())
+    }
+
     pub fn uninstall_package(&mut self, name: &str) -> Result<()> {
         if let Some(pkg) = self.state.packages.get(name) {
             println!("{} {}...", "Uninstalling".cyan(), name);
-            let home = dirs::home_dir().unwrap();
-            let bin_dir = home.join(".local/bin");
 
             for binary in &pkg.binaries {
-                let p = bin_dir.join(binary);
+                let p = self.bin_path.join(binary);
                 if p.exists() {
                     fs::remove_file(&p)?;
                     println!("   - Deleted {:?}", p);
@@ -162,7 +182,6 @@ impl RushEngine {
 
     /// Download the registry from the internet OR copy it from a local file
     pub fn update_registry(&self) -> Result<()> {
-        // 1. Determine the source (Env var or Default)
         let registry_url =
             std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
 
@@ -170,11 +189,7 @@ impl RushEngine {
 
         let content = if registry_url.starts_with("http") {
             // Case A: It's a URL (Download it)
-            let client = reqwest::blocking::Client::builder()
-                .user_agent("rush/1.0")
-                .build()?;
-
-            let response = client.get(&registry_url).send()?.error_for_status()?;
+            let response = self.client.get(&registry_url).send()?.error_for_status()?;
             response.text()?
         } else {
             // Case B: It's a Local File (Read it)
@@ -185,36 +200,145 @@ impl RushEngine {
             fs::read_to_string(&path)?
         };
 
-        // 2. Save it to our cache (~/.local/share/rush/registry.toml)
-        let registry_path = self.state_path.parent().unwrap().join("registry.toml");
-        fs::write(&registry_path, content)?;
-
-        println!(
-            "{} Registry saved to {:?}",
-            "Success:".green(),
-            registry_path
-        );
+        fs::write(&self.registry_path, content)?;
+        println!("{} Registry saved", "Success:".green());
         Ok(())
     }
 
-    /// Attempt to load the registry from disk.
-    /// Returns an error if the file doesn't exist.
     pub fn load_registry(&self) -> Result<Registry> {
-        let path = self.get_registry_path();
-
-        if !path.exists() {
+        if !self.registry_path.exists() {
             anyhow::bail!("Registry not found");
         }
 
-        let content = fs::read_to_string(&path)?;
+        let content = fs::read_to_string(&self.registry_path)?;
         let registry: Registry =
             toml::from_str(&content).context("Failed to parse registry.toml")?;
 
         Ok(registry)
     }
 
-    /// Helper to get the path where the registry is cached
     pub fn get_registry_path(&self) -> PathBuf {
-        self.state_path.parent().unwrap().join("registry.toml")
+        self.registry_path.clone()
+    }
+}
+
+// --- TESTS ---
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_engine_initialization() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // Use testing constructor
+        let _engine = RushEngine::with_root(root.clone()).unwrap();
+
+        assert!(root.join(".local/share/rush").exists());
+    }
+
+    #[test]
+    fn test_state_persistence() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // 1. Open Engine, Add a fake package, Save
+        {
+            let mut engine = RushEngine::with_root(root.clone()).unwrap();
+            engine.state.packages.insert(
+                "fake-pkg".to_string(),
+                InstalledPackage {
+                    version: "1.0.0".to_string(),
+                    binaries: vec!["fake-bin".to_string()],
+                },
+            );
+            engine.save().unwrap();
+        }
+
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+        assert!(engine.state.packages.contains_key("fake-pkg"));
+    }
+
+    #[test]
+    fn test_verify_checksum_logic() {
+        let data = b"hello world";
+        // echo -n "hello world" | sha256sum
+        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let wrong_hash = "literally-anything-else";
+
+        // Should pass
+        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
+
+        // Should fail
+        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
+    }
+
+     #[test]
+    fn test_uninstall_deletes_files() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let bin_path = root.join(".local/bin");
+
+        // 1. Setup: Create a fake installed package and a fake binary file
+        let mut engine = RushEngine::with_root(root.clone()).unwrap();
+        
+        // Create the dummy binary file
+        fs::create_dir_all(&bin_path).unwrap();
+        let dummy_bin = bin_path.join("dummy-tool");
+        fs::write(&dummy_bin, "binary content").unwrap();
+
+        // Register it in state
+        engine.state.packages.insert(
+            "dummy-tool".to_string(),
+            InstalledPackage {
+                version: "1.0.0".to_string(),
+                binaries: vec!["dummy-tool".to_string()],
+            },
+        );
+        engine.save().unwrap();
+
+        // 2. Action: Uninstall
+        engine.uninstall_package("dummy-tool").unwrap();
+
+        // 3. Assert: File should be gone
+        assert!(!dummy_bin.exists(), "Binary file was not deleted!");
+        
+        // 4. Assert: State should be clean
+        let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
+        assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
+    }
+
+    #[test]
+    fn test_local_registry_update() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        // 1. Create a dummy registry file
+        let dummy_registry_path = root.join("dummy_registry.toml");
+        fs::write(
+            &dummy_registry_path,
+            r#"
+            [packages.test-tool]
+            version = "0.0.1"
+            targets = {}
+        "#,
+        )
+        .unwrap();
+
+        // 2. Point env var to it
+        // We use unsafe here because setting Env Vars in tests can be racey.
+        // For this simple test suite, it is acceptable.
+        unsafe {
+            std::env::set_var("RUSH_REGISTRY_URL", dummy_registry_path.to_str().unwrap());
+        }
+
+        // 3. Run Update
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+        engine.update_registry().unwrap();
+
+        // 4. Check if it copied the file to the internal cache
+        assert!(engine.load_registry().is_ok());
     }
 }

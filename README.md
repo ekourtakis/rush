@@ -85,3 +85,11 @@ rush update
 ```
 
 `RUSH_REGISTRY_URL` may also be a valid path to a `toml` file.
+
+## Testing
+
+Use:
+
+```sh
+cargo test
+```
