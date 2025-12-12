@@ -4,7 +4,7 @@ use colored::*;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs::{self};
 use std::path::PathBuf;
 use tar::Archive;
 
@@ -23,6 +23,7 @@ pub struct RushEngine {
 
 impl RushEngine {
     /// Standard constructor
+    /// Load the engine and state from disk
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("No home dir")?;
         Self::init(home)
@@ -33,7 +34,7 @@ impl RushEngine {
         Self::init(root)
     }
 
-    /// Internal initializer
+    /// Shared initialization logic
     fn init(root: PathBuf) -> Result<Self> {
         let state_dir = root.join(".local/share/rush");
         let bin_path = root.join(".local/bin");
@@ -50,7 +51,7 @@ impl RushEngine {
             State::default()
         };
 
-        // Initialize Client
+        // Initialize Client ONCE
         let client = reqwest::blocking::Client::builder()
             .user_agent(concat!("rush/", env!("CARGO_PKG_VERSION")))
             .build()?;
@@ -71,6 +72,7 @@ impl RushEngine {
         Ok(())
     }
 
+    /// Download and Install a package
     pub fn install_package(
         &mut self,
         name: &str,
@@ -79,7 +81,7 @@ impl RushEngine {
     ) -> Result<()> {
         println!("{} {} (v{})...", "Installing".cyan(), name, version);
 
-        // Check for HTTP errors
+        // 1. Download & Verify
         let response = self.client.get(&target.url).send()?.error_for_status()?;
         let len = response.content_length().unwrap_or(0);
 
@@ -93,36 +95,22 @@ impl RushEngine {
         let content = response.bytes()?;
         pb.finish();
 
-        // VERIFY CHECKSUM
         println!("{}", "Verifying checksum...".cyan());
         Self::verify_checksum(&content, &target.sha256)?;
         println!("{}", "Checksum Verified.".green());
 
-        // EXTRACT
+        // 2. Extract
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-            let path = entry.path()?;
-            if let Some(fname) = path.file_name() {
-                if fname == std::ffi::OsStr::new(&target.bin) {
-                    let dest = self.bin_path.join(&target.bin);
-                    let mut out = File::create(&dest)?;
-                    std::io::copy(&mut entry, &mut out)?;
 
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let mut p = fs::metadata(&dest)?.permissions();
-                        p.set_mode(0o755);
-                        fs::set_permissions(&dest, p)?;
-                    }
-
-                    println!("{} Installed to {:?}", "Success:".green(), dest);
-                    found = true;
-                }
+            // Returns true if it extracted the file
+            if self.try_extract_binary(&mut entry, &target.bin)? {
+                found = true;
+                break; // Stop scanning the tarball once we find the binary
             }
         }
 
@@ -131,7 +119,7 @@ impl RushEngine {
             anyhow::bail!("Binary missing in archive");
         }
 
-        // Update State
+        // 3. Update State
         self.state.packages.insert(
             name.to_string(),
             InstalledPackage {
@@ -142,6 +130,50 @@ impl RushEngine {
         self.save()?;
 
         Ok(())
+    }
+
+    /// Helper for `install_package()`: Checks if the current tar entry is the binary we want.
+    /// If yes, performs the atomic install and returns `true`.
+    /// If no, returns `false`.
+    fn try_extract_binary<R: std::io::Read>(
+        &self,
+        entry: &mut tar::Entry<R>,
+        target_bin_name: &str,
+    ) -> Result<bool> {
+        let path = entry.path()?;
+
+        // Guard Clause 1: Check if filename exists
+        let fname = match path.file_name() {
+            Some(f) => f,
+            None => return Ok(false),
+        };
+
+        // Guard Clause 2: Check if filename matches target
+        if fname != std::ffi::OsStr::new(target_bin_name) {
+            return Ok(false);
+        }
+
+        // --- ATOMIC INSTALL LOGIC ---
+        let dest = self.bin_path.join(target_bin_name);
+
+        let mut temp_file = tempfile::Builder::new()
+            .prefix(".rush-tmp-")
+            .tempfile_in(&self.bin_path)?;
+
+        std::io::copy(entry, &mut temp_file)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut p = temp_file.as_file().metadata()?.permissions();
+            p.set_mode(0o755);
+            temp_file.as_file().set_permissions(p)?;
+        }
+
+        temp_file.persist(&dest)?;
+        println!("{} Installed to {:?}", "Success:".green(), dest);
+
+        Ok(true)
     }
 
     /// Verify checksum of given content against expected hash
@@ -201,7 +233,11 @@ impl RushEngine {
         };
 
         fs::write(&self.registry_path, content)?;
-        println!("{} Registry saved", "Success:".green());
+        println!(
+            "{} Registry saved to {:?}",
+            "Success:".green(),
+            self.registry_path
+        );
         Ok(())
     }
 
@@ -227,16 +263,100 @@ impl RushEngine {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+    use std::io::Cursor;
 
     #[test]
     fn test_engine_initialization() {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
-
-        // Use testing constructor
         let _engine = RushEngine::with_root(root.clone()).unwrap();
-
         assert!(root.join(".local/share/rush").exists());
+    }
+
+    // -- install_package() tests --
+
+    #[test]
+    fn test_verify_checksum_logic() {
+        let data = b"hello world";
+        // echo -n "hello world" | sha256sum
+        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let wrong_hash = "literally-anything-else";
+
+        // Should pass
+        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
+
+        // Should fail
+        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
+    }
+
+    #[test]
+    fn test_try_extract_binary_success() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+
+        // 1. Create a fake tarball in memory
+        let mut header = tar::Header::new_gnu();
+        header.set_size(12);
+        header.set_path("test-bin").unwrap();
+        header.set_cksum();
+
+        let mut data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut data);
+            builder.append(&header, &b"fake content"[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        // 2. Read the tarball and attempt extraction
+        let cursor = Cursor::new(data);
+        let mut archive = Archive::new(cursor);
+        let mut entries = archive.entries().unwrap();
+        let mut entry = entries.next().unwrap().unwrap();
+
+        let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
+
+        // 3. Assertions
+        assert!(result, "Should have extracted the binary");
+        let expected_path = root.join(".local/bin/test-bin");
+        assert!(expected_path.exists());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = fs::metadata(expected_path).unwrap();
+            assert_eq!(metadata.permissions().mode() & 0o111, 0o111, "Should be executable");
+        }
+    }
+
+    #[test]
+    fn test_try_extract_binary_mismatch() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+
+        // Create a tarball with a different filename
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_path("wrong-name").unwrap();
+        header.set_cksum();
+
+        let mut data = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut data);
+            builder.append(&header, &b""[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let cursor = Cursor::new(data);
+        let mut archive = Archive::new(cursor);
+        let mut entries = archive.entries().unwrap();
+        let mut entry = entries.next().unwrap().unwrap();
+
+        let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
+
+        assert!(!result, "Should not have extracted mismatched filename");
+        assert!(!root.join(".local/bin/test-bin").exists());
     }
 
     #[test]
@@ -244,7 +364,6 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
 
-        // 1. Open Engine, Add a fake package, Save
         {
             let mut engine = RushEngine::with_root(root.clone()).unwrap();
             engine.state.packages.insert(
@@ -261,21 +380,9 @@ mod tests {
         assert!(engine.state.packages.contains_key("fake-pkg"));
     }
 
+    // -- uninstall_package() tests --
+
     #[test]
-    fn test_verify_checksum_logic() {
-        let data = b"hello world";
-        // echo -n "hello world" | sha256sum
-        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
-        let wrong_hash = "literally-anything-else";
-
-        // Should pass
-        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
-
-        // Should fail
-        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
-    }
-
-     #[test]
     fn test_uninstall_deletes_files() {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
@@ -283,7 +390,7 @@ mod tests {
 
         // 1. Setup: Create a fake installed package and a fake binary file
         let mut engine = RushEngine::with_root(root.clone()).unwrap();
-        
+
         // Create the dummy binary file
         fs::create_dir_all(&bin_path).unwrap();
         let dummy_bin = bin_path.join("dummy-tool");
@@ -304,11 +411,13 @@ mod tests {
 
         // 3. Assert: File should be gone
         assert!(!dummy_bin.exists(), "Binary file was not deleted!");
-        
+
         // 4. Assert: State should be clean
         let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
     }
+
+    // -- update_registry() tests --
 
     #[test]
     fn test_local_registry_update() {
@@ -317,12 +426,13 @@ mod tests {
 
         // 1. Create a dummy registry file
         let dummy_registry_path = root.join("dummy_registry.toml");
+
         fs::write(
             &dummy_registry_path,
             r#"
-            [packages.test-tool]
-            version = "0.0.1"
-            targets = {}
+            [packages.test]
+            version = "0.1.0"
+            targets = {} 
         "#,
         )
         .unwrap();
@@ -336,9 +446,10 @@ mod tests {
 
         // 3. Run Update
         let engine = RushEngine::with_root(root.clone()).unwrap();
+
         engine.update_registry().unwrap();
 
-        // 4. Check if it copied the file to the internal cache
+        // This confirms the file was copied and parsed correctly
         assert!(engine.load_registry().is_ok());
     }
 }
