@@ -257,28 +257,31 @@ impl RushEngine {
         self.registry_path.clone()
     }
 
+    // Remove temporary files from failed installs
     pub fn clean_trash(&self) -> Result<()> {
+        // Read the bin directory
+        // We use read_dir which returns an iterator over entries
         let bin_dir = std::fs::read_dir(&self.bin_path)?;
         let mut count = 0;
 
         for entry in bin_dir {
             let entry = entry?;
             let path = entry.path();
-            
+
             // Check if it looks like one of our temp files
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name.starts_with(".rush-tmp-") {
                     std::fs::remove_file(&path)?;
-                    println!("Deleted trash: {:?}", name);
+                    println!("{} {:?}", "Deleted trash:".yellow(), name);
                     count += 1;
                 }
             }
         }
-        
+
         if count == 0 {
-            println!("No trash found. System is clean.");
+            println!("{}", "No trash found. System is clean.".green());
         } else {
-            println!("Cleaned {} temporary files.", count);
+            println!("{} {} temporary files.", "Cleaned".green(), count);
         }
         Ok(())
     }
@@ -288,8 +291,8 @@ impl RushEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::io::Cursor;
+    use tempfile::tempdir;
 
     #[test]
     fn test_engine_initialization() {
@@ -351,7 +354,11 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let metadata = fs::metadata(expected_path).unwrap();
-            assert_eq!(metadata.permissions().mode() & 0o111, 0o111, "Should be executable");
+            assert_eq!(
+                metadata.permissions().mode() & 0o111,
+                0o111,
+                "Should be executable"
+            );
         }
     }
 
@@ -477,5 +484,37 @@ mod tests {
 
         // This confirms the file was copied and parsed correctly
         assert!(engine.load_registry().is_ok());
+    }
+
+    // -- clean_trash() tests --
+    #[test]
+    fn test_clean_trash() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let bin_path = root.join(".local/bin");
+
+        // 1. Initialize Engine (creates folders)
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+
+        // 2. Create a "Real" binary (Should NOT be deleted)
+        let real_bin = bin_path.join("ripgrep");
+        fs::write(&real_bin, "I am a real program").unwrap();
+
+        // 3. Create "Trash" files (SHOULD be deleted)
+        let trash1 = bin_path.join(".rush-tmp-12345");
+        let trash2 = bin_path.join(".rush-tmp-abcde");
+        fs::write(&trash1, "junk data").unwrap();
+        fs::write(&trash2, "more junk").unwrap();
+
+        // 4. Run the cleaner
+        engine.clean_trash().unwrap();
+
+        // 5. Verify results
+        assert!(
+            real_bin.exists(),
+            "The real binary was accidentally deleted!"
+        );
+        assert!(!trash1.exists(), "Trash file 1 still exists!");
+        assert!(!trash2.exists(), "Trash file 2 still exists!");
     }
 }

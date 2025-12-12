@@ -88,7 +88,9 @@ rush update
 
 ## Testing
 
-Use:
+Unit tests located at the end of their corresponding files. Integration tests are within [`tests/`](./tests/).
+
+Run tests:
 
 ```sh
 cargo test
