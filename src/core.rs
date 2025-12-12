@@ -4,7 +4,7 @@ use colored::*;
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs::{self};
 use std::path::PathBuf;
 use tar::Archive;
 
@@ -23,6 +23,7 @@ pub struct RushEngine {
 
 impl RushEngine {
     /// Standard constructor
+    /// Load the engine and state from disk
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("No home dir")?;
         Self::init(home)
@@ -33,7 +34,7 @@ impl RushEngine {
         Self::init(root)
     }
 
-    /// Internal initializer
+    /// Shared initialization logic
     fn init(root: PathBuf) -> Result<Self> {
         let state_dir = root.join(".local/share/rush");
         let bin_path = root.join(".local/bin");
@@ -50,7 +51,7 @@ impl RushEngine {
             State::default()
         };
 
-        // Initialize Client
+        // Initialize Client ONCE
         let client = reqwest::blocking::Client::builder()
             .user_agent(concat!("rush/", env!("CARGO_PKG_VERSION")))
             .build()?;
@@ -71,6 +72,7 @@ impl RushEngine {
         Ok(())
     }
 
+    /// Download and Install a package
     pub fn install_package(
         &mut self,
         name: &str,
@@ -109,16 +111,28 @@ impl RushEngine {
             if let Some(fname) = path.file_name() {
                 if fname == std::ffi::OsStr::new(&target.bin) {
                     let dest = self.bin_path.join(&target.bin);
-                    let mut out = File::create(&dest)?;
-                    std::io::copy(&mut entry, &mut out)?;
 
+                    // --- ATOMIC INSTALL START ---
+                    // 1. Create a temp file in the same directory (ensures atomic rename is possible)
+                    let mut temp_file = tempfile::Builder::new()
+                        .prefix(".rush-tmp-")
+                        .tempfile_in(&self.bin_path)?;
+
+                    // 2. Write data to the temp file
+                    std::io::copy(&mut entry, &mut temp_file)?;
+
+                    // 3. Set permissions on the temp file
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt;
-                        let mut p = fs::metadata(&dest)?.permissions();
+                        let mut p = temp_file.as_file().metadata()?.permissions();
                         p.set_mode(0o755);
-                        fs::set_permissions(&dest, p)?;
+                        temp_file.as_file().set_permissions(p)?;
                     }
+
+                    // 4. Atomically persist (rename) the file to the final destination
+                    // This replaces the old binary instantly.
+                    temp_file.persist(&dest)?;
 
                     println!("{} Installed to {:?}", "Success:".green(), dest);
                     found = true;
@@ -201,7 +215,11 @@ impl RushEngine {
         };
 
         fs::write(&self.registry_path, content)?;
-        println!("{} Registry saved", "Success:".green());
+        println!(
+            "{} Registry saved to {:?}",
+            "Success:".green(),
+            self.registry_path
+        );
         Ok(())
     }
 
@@ -232,11 +250,22 @@ mod tests {
     fn test_engine_initialization() {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
-
-        // Use testing constructor
         let _engine = RushEngine::with_root(root.clone()).unwrap();
-
         assert!(root.join(".local/share/rush").exists());
+    }
+
+    #[test]
+    fn test_verify_checksum_logic() {
+        let data = b"hello world";
+        // echo -n "hello world" | sha256sum
+        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let wrong_hash = "literally-anything-else";
+
+        // Should pass
+        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
+
+        // Should fail
+        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
     }
 
     #[test]
@@ -244,7 +273,6 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
 
-        // 1. Open Engine, Add a fake package, Save
         {
             let mut engine = RushEngine::with_root(root.clone()).unwrap();
             engine.state.packages.insert(
@@ -262,20 +290,6 @@ mod tests {
     }
 
     #[test]
-    fn test_verify_checksum_logic() {
-        let data = b"hello world";
-        // echo -n "hello world" | sha256sum
-        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
-        let wrong_hash = "literally-anything-else";
-
-        // Should pass
-        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
-
-        // Should fail
-        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
-    }
-
-     #[test]
     fn test_uninstall_deletes_files() {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
@@ -283,7 +297,7 @@ mod tests {
 
         // 1. Setup: Create a fake installed package and a fake binary file
         let mut engine = RushEngine::with_root(root.clone()).unwrap();
-        
+
         // Create the dummy binary file
         fs::create_dir_all(&bin_path).unwrap();
         let dummy_bin = bin_path.join("dummy-tool");
@@ -304,7 +318,7 @@ mod tests {
 
         // 3. Assert: File should be gone
         assert!(!dummy_bin.exists(), "Binary file was not deleted!");
-        
+
         // 4. Assert: State should be clean
         let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
@@ -317,12 +331,13 @@ mod tests {
 
         // 1. Create a dummy registry file
         let dummy_registry_path = root.join("dummy_registry.toml");
+
         fs::write(
             &dummy_registry_path,
             r#"
-            [packages.test-tool]
-            version = "0.0.1"
-            targets = {}
+            [packages.test]
+            version = "0.1.0"
+            targets = {} 
         "#,
         )
         .unwrap();
@@ -336,9 +351,10 @@ mod tests {
 
         // 3. Run Update
         let engine = RushEngine::with_root(root.clone()).unwrap();
+
         engine.update_registry().unwrap();
 
-        // 4. Check if it copied the file to the internal cache
+        // This confirms the file was copied and parsed correctly
         assert!(engine.load_registry().is_ok());
     }
 }
