@@ -32,3 +32,15 @@ fn test_binary_version() {
         .success()
         .stdout(predicate::str::contains("rush 0.1.0"));
 }
+
+#[test]
+fn test_clean_command_runs() {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+
+    // We just want to ensure it runs successfully (exit code 0)
+    // We don't necessarily need to mock the filesystem here since core::tests covers that.
+    cmd.arg("clean")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No trash found").or(predicate::str::contains("Cleaned")));
+}
