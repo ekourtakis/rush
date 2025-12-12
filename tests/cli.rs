@@ -3,8 +3,6 @@ use predicates::prelude::*;
 
 #[test]
 fn test_binary_runs_help() {
-    // FIX: Use the env var provided by Cargo instead of cargo_bin()
-    // The format is always CARGO_BIN_EXE_<name_from_cargo_toml>
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
 
     cmd.arg("--help")

@@ -95,18 +95,7 @@ impl RushEngine {
 
         // VERIFY CHECKSUM
         println!("{}", "Verifying checksum...".cyan());
-
-        let mut hasher = Sha256::new();
-        hasher.update(&content);
-        let hash = hex::encode(hasher.finalize());
-
-        if hash != target.sha256 {
-            println!("{} Hash mismatch!", "Error:".red());
-            println!("  Expected: {}", target.sha256);
-            println!("  Got:      {}", hash);
-            anyhow::bail!("Security check failed: Checksum mismatch");
-        }
-
+        Self::verify_checksum(&content, &target.sha256)?;
         println!("{}", "Checksum Verified.".green());
 
         // EXTRACT
@@ -152,6 +141,21 @@ impl RushEngine {
         );
         self.save()?;
 
+        Ok(())
+    }
+
+    /// Verify checksum of given content against expected hash
+    fn verify_checksum(content: &[u8], expected_hash: &str) -> Result<()> {
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let hash = hex::encode(hasher.finalize());
+
+        if hash != expected_hash {
+            println!("{} Hash mismatch!", "Error:".red());
+            println!("  Expected: {}", expected_hash);
+            println!("  Got:      {}", hash);
+            anyhow::bail!("Security check failed: Checksum mismatch");
+        }
         Ok(())
     }
 
@@ -229,7 +233,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
 
-        // NEW API: Explicit "with_root"
+        // Use testing constructor
         let _engine = RushEngine::with_root(root.clone()).unwrap();
 
         assert!(root.join(".local/share/rush").exists());
@@ -255,6 +259,55 @@ mod tests {
 
         let engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(engine.state.packages.contains_key("fake-pkg"));
+    }
+
+    #[test]
+    fn test_verify_checksum_logic() {
+        let data = b"hello world";
+        // echo -n "hello world" | sha256sum
+        let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
+        let wrong_hash = "literally-anything-else";
+
+        // Should pass
+        assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
+
+        // Should fail
+        assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
+    }
+
+     #[test]
+    fn test_uninstall_deletes_files() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let bin_path = root.join(".local/bin");
+
+        // 1. Setup: Create a fake installed package and a fake binary file
+        let mut engine = RushEngine::with_root(root.clone()).unwrap();
+        
+        // Create the dummy binary file
+        fs::create_dir_all(&bin_path).unwrap();
+        let dummy_bin = bin_path.join("dummy-tool");
+        fs::write(&dummy_bin, "binary content").unwrap();
+
+        // Register it in state
+        engine.state.packages.insert(
+            "dummy-tool".to_string(),
+            InstalledPackage {
+                version: "1.0.0".to_string(),
+                binaries: vec!["dummy-tool".to_string()],
+            },
+        );
+        engine.save().unwrap();
+
+        // 2. Action: Uninstall
+        engine.uninstall_package("dummy-tool").unwrap();
+
+        // 3. Assert: File should be gone
+        assert!(!dummy_bin.exists(), "Binary file was not deleted!");
+        
+        // 4. Assert: State should be clean
+        let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
+        assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
     }
 
     #[test]
