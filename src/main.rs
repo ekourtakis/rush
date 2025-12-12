@@ -17,7 +17,7 @@ fn main() -> Result<()> {
         Ok(reg) => reg,
         Err(_) => {
             // If the file is missing, handle it gracefully
-            if matches!(cli.command, Commands::Update) {
+            if matches!(cli.command, Commands::Update | Commands::Clean) {
                 // If the user is running 'update', we don't need the old registry.
                 // Return an empty one to satisfy the compiler.
                 Registry {
