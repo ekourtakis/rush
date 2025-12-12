@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 // --- CLI ---
 #[derive(Parser, Debug)] // Added Debug
 #[command(name = "rush")]
+#[command(version)]
 #[command(about = "A lightning-fast toy package manager.", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
