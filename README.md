@@ -84,12 +84,30 @@ rush update
 
 `RUSH_REGISTRY_URL` may also be a valid path to a `toml` file.
 
-## Testing
+## Development
 
-Unit tests located at the end of their corresponding files. Integration tests are within [`tests/`](./tests/).
+### Testing
 
-Run tests:
+Unit tests are located at the end of source files; integration tests are in `tests/`.
+
+Run all tests:
 
 ```sh
 cargo test
+```
+
+### Linting
+
+Use:
+
+```sh
+cargo clippy -- -D warnings
+```
+
+### Formatting
+
+Use:
+
+```sh
+cargo fmt --check
 ```
