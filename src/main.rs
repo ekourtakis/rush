@@ -97,22 +97,34 @@ fn main() -> Result<()> {
 
             for name in installed_names {
                 let current_ver = engine.state.packages.get(&name).unwrap().version.clone();
-                if let Some(reg_pkg) = registry.packages.get(&name) {
-                    if let Some(target) = reg_pkg.targets.get(&current_target) {
-                        if reg_pkg.version != current_ver {
-                            println!(
-                                "{} {} (v{} -> v{})...",
-                                "Upgrading".cyan(),
-                                name,
-                                current_ver,
-                                reg_pkg.version
-                            );
-                            engine.install_package(&name, &reg_pkg.version, target)?;
-                            count += 1;
-                        }
-                    }
+
+                // 1. Does package exist in registry?
+                let Some(reg_pkg) = registry.packages.get(&name) else {
+                    continue;
+                };
+
+                // 2. Does it support this OS?
+                let Some(target) = reg_pkg.targets.get(&current_target) else {
+                    continue;
+                };
+
+                // 3. Is the version new?
+                if reg_pkg.version == current_ver {
+                    continue;
                 }
+
+                // --- ACTION ---
+                println!(
+                    "{} {} (v{} -> v{})...",
+                    "Upgrading".cyan(),
+                    name,
+                    current_ver,
+                    reg_pkg.version
+                );
+                engine.install_package(&name, &reg_pkg.version, target)?;
+                count += 1;
             }
+
             if count == 0 {
                 println!("{}", "All packages are up to date.".green());
             } else {
