@@ -46,7 +46,7 @@ Once installed, you can use the `rush` command.
 | **`rush list`** | Show packages currently installed on your system |
 | **`rush upgrade`** | Check for newer versions in the registry and upgrade installed tools |
 | **`rush uninstall <name>`** | Remove a package and delete its binary |
-| **`rush update`** | Reload the registry file |
+| **`rush update`** | Reload the registry |
 | **`rush clean`** | Remove temporary files from failed installs |
 
 If you haven't built the binary, you can use cargo run with all commands, e.g.: `cargo run -- install <name>`.
@@ -78,11 +78,16 @@ rush uninstall ripgrep
 By default, rush uses the default registry hosted on this GitHub repo. You can override this by setting the `RUSH_REGISTRY_URL` environment variable.
 
 ```bash
-export RUSH_REGISTRY_URL="https://some/other/url/registry.toml"
+export RUSH_REGISTRY_URL="https://github.com/username/repo/archive/main.tar.gz"
 rush update
 ```
 
-`RUSH_REGISTRY_URL` may also be a valid path to a `toml` file.
+`RUSH_REGISTRY_URL` may also be a valid path to a directory containing a registry directory, e.g.:
+
+```sh
+# In "rush" directory
+RUSH_REGISTRY_URL="$(pwd)"
+```
 
 ## Development
 
