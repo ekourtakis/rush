@@ -165,33 +165,45 @@ fn test_local_registry_update() {
     let temp_dir = tempdir().unwrap();
     let root = temp_dir.path().to_path_buf();
 
-    // 1. Create a dummy registry file
-    let dummy_registry_path = root.join("dummy_registry.toml");
+    // 1. Create a dummy registry SOURCE structure
+    // We need to mimic: source/packages/t/test-tool.toml
+    let source_dir = temp_dir.path().join("source");
+    let pkg_dir = source_dir.join("packages").join("t");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
 
-    fs::write(
-        &dummy_registry_path,
+    let dummy_toml = pkg_dir.join("test-tool.toml");
+    std::fs::write(
+        &dummy_toml,
         r#"
-            [packages.test]
-            version = "0.1.0"
-            targets = {} 
-        "#,
+        version = "0.1.0"
+        description = "Test package"
+        
+        [targets.x86_64-linux]
+        url = "http://example.com"
+        bin = "test"
+        sha256 = "123"
+    "#,
     )
     .unwrap();
 
-    // 2. Point env var to it
-    // We use unsafe here because setting Env Vars in tests can be racey.
-    // For this simple test suite, it is acceptable.
+    // 2. Point env var to the SOURCE root
     unsafe {
-        std::env::set_var("RUSH_REGISTRY_URL", dummy_registry_path.to_str().unwrap());
+        std::env::set_var("RUSH_REGISTRY_URL", source_dir.to_str().unwrap());
     }
 
-    // 3. Run Update
+    // 3. Run Update on the Engine
     let engine = RushEngine::with_root(root.clone()).unwrap();
-
     engine.update_registry().unwrap();
 
-    // This confirms the file was copied and parsed correctly
-    assert!(engine.load_registry().is_ok());
+    // 4. Verify it was copied to the internal cache
+    // We use find_package because load_registry no longer exists
+    let found = engine.find_package("test-tool");
+
+    assert!(
+        found.is_some(),
+        "Failed to find test-tool in updated registry"
+    );
+    assert_eq!(found.unwrap().version, "0.1.0");
 }
 
 // -- clean_trash() tests --

@@ -1,4 +1,4 @@
-use crate::models::{InstalledPackage, Registry, State, TargetDefinition};
+use crate::models::{InstalledPackage, PackageManifest, State, TargetDefinition};
 use anyhow::{Context, Result};
 use colored::*;
 use flate2::read::GzDecoder;
@@ -7,16 +7,17 @@ use sha2::{Digest, Sha256};
 use std::fs::{self};
 use std::path::PathBuf;
 use tar::Archive;
+use walkdir::WalkDir;
 
 /// Default URL to fetch the registry from, overridable by env variable
 const DEFAULT_REGISTRY_URL: &str =
-    "https://raw.githubusercontent.com/ekourtakis/rush/main/registry.toml";
+    "https://github.com/ekourtakis/rush/archive/refs/heads/refactor/registry.tar.gz";
 
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
     state_path: PathBuf,               // ~/.local/share/rush/installed.json
-    registry_path: PathBuf,            // ~/.local/share/rush/registry.toml
+    registry_dir: PathBuf,             // ~/.local/share/rush/registry/
     bin_path: PathBuf,                 // ~/.local/bin
     client: reqwest::blocking::Client, // HTTP Client
 }
@@ -39,7 +40,7 @@ impl RushEngine {
         let state_dir = root.join(".local/share/rush");
         let bin_path = root.join(".local/bin");
         let state_path = state_dir.join("installed.json");
-        let registry_path = state_dir.join("registry.toml");
+        let registry_dir = state_dir.join("registry");
 
         fs::create_dir_all(&state_dir)?;
         fs::create_dir_all(&bin_path)?;
@@ -51,7 +52,7 @@ impl RushEngine {
             State::default()
         };
 
-        // Initialize Client ONCE
+        // Initialize Client
         let client = reqwest::blocking::Client::builder()
             .user_agent(concat!("rush/", env!("CARGO_PKG_VERSION")))
             .build()?;
@@ -59,7 +60,7 @@ impl RushEngine {
         Ok(Self {
             state,
             state_path,
-            registry_path,
+            registry_dir,
             bin_path,
             client,
         })
@@ -214,47 +215,148 @@ impl RushEngine {
 
     /// Download the registry from the internet OR copy it from a local file
     pub fn update_registry(&self) -> Result<()> {
-        let registry_url =
+        let source =
             std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
 
-        println!("{} from {}...", "Fetching registry".cyan(), registry_url);
+        println!("{} from {}...", "Fetching registry".cyan(), source);
 
-        let content = if registry_url.starts_with("http") {
-            // Case A: It's a URL (Download it)
-            let response = self.client.get(&registry_url).send()?.error_for_status()?;
-            response.text()?
-        } else {
-            // Case B: It's a Local File (Read it)
-            let path = PathBuf::from(&registry_url);
-            if !path.exists() {
-                anyhow::bail!("Local registry file not found: {:?}", path);
+        // Wipe old registry to ensure deleted packages are removed
+        if self.registry_dir.exists() {
+            fs::remove_dir_all(&self.registry_dir)?;
+        }
+        fs::create_dir_all(&self.registry_dir)?;
+
+        if source.starts_with("http") {
+            // REMOTE TARBALL MODE
+            let response = self.client.get(&source).send()?.error_for_status()?;
+            let content = response.bytes()?;
+
+            let tar = GzDecoder::new(&content[..]);
+            let mut archive = Archive::new(tar);
+
+            // GitHub archives usually start with "rush-refactor-registry/packages/..."
+            // We need to find the "packages/" folder and extract it to our registry root.
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                let path = entry.path()?;
+                let path_str = path.to_string_lossy();
+
+                // Look for "packages/" inside the tarball path
+                if let Some(idx) = path_str.find("packages/") {
+                    // Extract relative path: packages/f/fzf.toml
+                    let relative_path = &path_str[idx..];
+                    let dest = self.registry_dir.join(relative_path);
+
+                    if let Some(parent) = dest.parent() {
+                        fs::create_dir_all(parent)?;
+                    }
+                    entry.unpack(dest)?;
+                }
             }
-            fs::read_to_string(&path)?
-        };
+        } else {
+            // LOCAL DIRECTORY MODE (Dev/Test)
+            let source_path = PathBuf::from(&source);
+            if !source_path.exists() {
+                anyhow::bail!("Local registry path not found: {:?}", source_path);
+            }
 
-        fs::write(&self.registry_path, content)?;
-        println!(
-            "{} Registry saved to {:?}",
-            "Success:".green(),
-            self.registry_path
-        );
+            let pkg_source = source_path.join("packages");
+            let pkg_dest = self.registry_dir.join("packages");
+
+            if !pkg_source.exists() {
+                println!(
+                    "{} No 'packages' directory found in {:?}",
+                    "Warning:".yellow(),
+                    source_path
+                );
+                return Ok(());
+            }
+
+            println!("Copying local registry from {:?}...", pkg_source);
+
+            for entry in WalkDir::new(&pkg_source) {
+                let entry = entry?;
+                // Calculate relative path to preserve structure
+                if let Ok(rel_path) = entry.path().strip_prefix(&pkg_source) {
+                    let dest_path = pkg_dest.join(rel_path);
+                    if entry.file_type().is_dir() {
+                        fs::create_dir_all(&dest_path)?;
+                    } else {
+                        fs::copy(entry.path(), &dest_path)?;
+                    }
+                }
+            }
+        }
+
+        println!("{} Registry updated.", "Success:".green());
         Ok(())
     }
 
-    pub fn load_registry(&self) -> Result<Registry> {
-        if !self.registry_path.exists() {
-            anyhow::bail!("Registry not found");
+    /// Look up a specific package file (e.g. .../registry/packages/f/fzf.toml)
+    pub fn find_package(&self, name: &str) -> Option<PackageManifest> {
+        let prefix = name.chars().next()?;
+
+        let path = self
+            .registry_dir
+            .join("packages")
+            .join(prefix.to_string())
+            .join(format!("{}.toml", name));
+
+        if path.exists() {
+            match fs::read_to_string(&path) {
+                Ok(content) => match toml::from_str(&content) {
+                    Ok(manifest) => Some(manifest),
+                    Err(e) => {
+                        println!("{} Failed to parse {:?}: {}", "Error:".red(), path, e);
+                        None
+                    }
+                },
+                Err(e) => {
+                    println!("{} Failed to read {:?}: {}", "Error:".red(), path, e);
+                    None
+                }
+            }
+        } else {
+            println!("DEBUG: Package file not found at {:?}", path);
+            None
         }
-
-        let content = fs::read_to_string(&self.registry_path)?;
-        let registry: Registry =
-            toml::from_str(&content).context("Failed to parse registry.toml")?;
-
-        Ok(registry)
     }
 
-    pub fn get_registry_path(&self) -> PathBuf {
-        self.registry_path.clone()
+    /// Scan the folder structure to list all available packages
+    pub fn list_available_packages(&self) -> Vec<(String, PackageManifest)> {
+        let mut results = Vec::new();
+        let packages_dir = self.registry_dir.join("packages");
+
+        if !packages_dir.exists() {
+            return results;
+        }
+
+        for entry in WalkDir::new(packages_dir)
+            .min_depth(2)
+            .max_depth(2)
+            .into_iter()
+            .flatten() 
+        {
+            // Guard Clause 1: Must be a file
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            // Guard Clause 2: Must have a valid filename
+            let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+
+            // Attempt to read and parse
+            // We use unwrap_or_default/ok logic to skip bad files silently
+            let content = fs::read_to_string(entry.path()).unwrap_or_default();
+            if let Ok(manifest) = toml::from_str::<PackageManifest>(&content) {
+                results.push((stem.to_string(), manifest));
+            }
+        }
+
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        results
     }
 
     /// Remove temporary files from failed installs
