@@ -5,6 +5,7 @@ use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
 use std::fs::{self};
+use std::io::Read;
 use std::path::PathBuf;
 use tar::Archive;
 use walkdir::WalkDir;
@@ -82,25 +83,13 @@ impl RushEngine {
     ) -> Result<()> {
         println!("{} {} (v{})...", "Installing".cyan(), name, version);
 
-        // 1. Download & Verify
-        let response = self.client.get(&target.url).send()?.error_for_status()?;
-        let len = response.content_length().unwrap_or(0);
-
-        let pb = ProgressBar::new(len);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{bar:40}] {bytes}/{total_bytes}")?,
-        );
-
-        // DOWNLOAD
-        let content = response.bytes()?;
-        pb.finish();
+        let content = self.download_with_progress(&target.url)?;
 
         println!("{}", "Verifying checksum...".cyan());
         Self::verify_checksum(&content, &target.sha256)?;
         println!("{}", "Checksum Verified.".green());
 
-        // 2. Extract
+        // Extract
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
@@ -120,7 +109,7 @@ impl RushEngine {
             anyhow::bail!("Binary missing in archive");
         }
 
-        // 3. Update State
+        // Update State
         self.state.packages.insert(
             name.to_string(),
             InstalledPackage {
@@ -213,7 +202,7 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download the registry from the internet OR copy it from a local file
+    /// Download the registry from the internet OR copy it from a local directory
     pub fn update_registry(&self) -> Result<()> {
         let source =
             std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
@@ -227,9 +216,7 @@ impl RushEngine {
         fs::create_dir_all(&self.registry_dir)?;
 
         if source.starts_with("http") {
-            // REMOTE TARBALL MODE
-            let response = self.client.get(&source).send()?.error_for_status()?;
-            let content = response.bytes()?;
+            let content = self.download_with_progress(&source)?;
 
             let tar = GzDecoder::new(&content[..]);
             let mut archive = Archive::new(tar);
@@ -254,7 +241,7 @@ impl RushEngine {
                 }
             }
         } else {
-            // LOCAL DIRECTORY MODE (Dev/Test)
+            // LOCAL DIRECTORY MODE
             let source_path = PathBuf::from(&source);
             if !source_path.exists() {
                 anyhow::bail!("Local registry path not found: {:?}", source_path);
@@ -335,7 +322,7 @@ impl RushEngine {
             .min_depth(2)
             .max_depth(2)
             .into_iter()
-            .flatten() 
+            .flatten()
         {
             // Guard Clause 1: Must be a file
             if !entry.file_type().is_file() {
@@ -387,6 +374,34 @@ impl RushEngine {
             println!("{} {} temporary files.", "Cleaned".green(), count);
         }
         Ok(())
+    }
+
+    /// Helper: Download with progress bar, returns content as Vec<u8>
+    fn download_with_progress(&self, url: &str) -> Result<Vec<u8>> {
+        let mut response = self.client.get(url).send()?.error_for_status()?;
+        let total_size = response.content_length().unwrap_or(0);
+
+        let pb = ProgressBar::new(total_size);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
+                .progress_chars("#>-"),
+        );
+
+        let mut content = Vec::with_capacity(total_size as usize);
+        let mut buffer = [0; 8192];
+
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            content.extend_from_slice(&buffer[..bytes_read]);
+            pb.inc(bytes_read as u64);
+        }
+        pb.finish_with_message("Download complete");
+
+        Ok(content)
     }
 }
 
