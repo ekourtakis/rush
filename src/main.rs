@@ -4,34 +4,12 @@ use colored::*;
 
 use rush::cli::{Cli, Commands};
 use rush::core::RushEngine;
-use rush::models::Registry;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize Engine
     let mut engine = RushEngine::new()?;
-
-    // Load Registry
-    let registry = match engine.load_registry() {
-        Ok(reg) => reg,
-        Err(_) => {
-            // If the file is missing, handle it gracefully
-            if matches!(cli.command, Commands::Update | Commands::Clean) {
-                // If the user is running 'update', we don't need the old registry.
-                // Return an empty one to satisfy the compiler.
-                Registry {
-                    packages: std::collections::HashMap::new(),
-                }
-            } else {
-                println!(
-                    "{} Registry not found. Please run 'rush update' first.",
-                    "Warning:".yellow()
-                );
-                return Ok(());
-            }
-        }
-    };
 
     // DETECT SYSTEM ARCHITECTURE
     // e.g., "x86_64-linux" or "aarch64-apple-darwin"
@@ -51,14 +29,16 @@ fn main() -> Result<()> {
 
         Commands::Search => {
             println!("{} ({}):", "Available Packages".bold(), current_target);
-            let mut keys: Vec<_> = registry.packages.keys().collect();
-            keys.sort();
 
-            for name in keys {
-                let pkg = registry.packages.get(name).unwrap();
-                // Only show packages compatible with THIS computer
-                if pkg.targets.contains_key(&current_target) {
-                    println!(" - {} (v{})", name.bold(), pkg.version);
+            let packages = engine.list_available_packages();
+
+            if packages.is_empty() {
+                println!("   (Registry empty or not found. Run 'rush update')");
+            }
+
+            for (name, manifest) in packages {
+                if manifest.targets.contains_key(&current_target) {
+                    println!(" - {} (v{})", name.bold(), manifest.version);
                 }
             }
         }
@@ -69,11 +49,9 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Find package in registry
-            if let Some(pkg_def) = registry.packages.get(name) {
-                // Find compatible target for THIS computer
-                if let Some(target) = pkg_def.targets.get(&current_target) {
-                    engine.install_package(name, &pkg_def.version, target)?;
+            if let Some(manifest) = engine.find_package(name) {
+                if let Some(target) = manifest.targets.get(&current_target) {
+                    engine.install_package(name, &manifest.version, target)?;
                 } else {
                     println!(
                         "{} No compatible binary for {}",
@@ -82,7 +60,11 @@ fn main() -> Result<()> {
                     );
                 }
             } else {
-                println!("{} Package '{}' not found", "Error:".red(), name);
+                println!(
+                    "{} Package '{}' not found. Run 'rush update'?",
+                    "Error:".red(),
+                    name
+                );
             }
         }
 
@@ -98,30 +80,26 @@ fn main() -> Result<()> {
             for name in installed_names {
                 let current_ver = engine.state.packages.get(&name).unwrap().version.clone();
 
-                // 1. Does package exist in registry?
-                let Some(reg_pkg) = registry.packages.get(&name) else {
+                let Some(manifest) = engine.find_package(&name) else {
                     continue;
                 };
 
-                // 2. Does it support this OS?
-                let Some(target) = reg_pkg.targets.get(&current_target) else {
+                let Some(target) = manifest.targets.get(&current_target) else {
                     continue;
                 };
 
-                // 3. Is the version new?
-                if reg_pkg.version == current_ver {
+                if manifest.version == current_ver {
                     continue;
                 }
 
-                // --- ACTION ---
                 println!(
                     "{} {} (v{} -> v{})...",
                     "Upgrading".cyan(),
                     name,
                     current_ver,
-                    reg_pkg.version
+                    manifest.version
                 );
-                engine.install_package(&name, &reg_pkg.version, target)?;
+                engine.install_package(&name, &manifest.version, target)?;
                 count += 1;
             }
 

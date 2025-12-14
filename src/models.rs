@@ -1,10 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 // --- REGISTRY DATA ---
-#[derive(Deserialize, Debug, Clone)]
-pub struct Registry {
-    pub packages: HashMap<String, PackageDefinition>,
+/// Represents one file (e.g. packages/f/fzf.toml)
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PackageManifest {
+    pub version: String,
+    pub description: Option<String>,
+    pub targets: BTreeMap<String, TargetDefinition>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -13,7 +17,7 @@ pub struct PackageDefinition {
     pub targets: HashMap<String, TargetDefinition>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct TargetDefinition {
     pub url: String,
     pub bin: String,
@@ -32,39 +36,38 @@ pub struct InstalledPackage {
     pub binaries: Vec<String>,
 }
 
-// --- TESTS ---
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_registry_toml_contract() {
-        // This simulates the actual TOML file on GitHub.
-        // If this test fails, it means we broke compatibility with our own registry.
+    /// Verify we can parse an existing package manifest format
+    /// If this test fails, it means we broke compatibility with our own registry.
+    fn test_package_manifest_contract() {
+        // This matches the registry structure (one file per package)
         let toml_input = r#"
-            [packages.test-tool]
             version = "1.0.0"
+            description = "A test tool"
             
-            [packages.test-tool.targets.x86_64-linux]
+            [targets.x86_64-linux]
             url = "https://example.com/tool.tar.gz"
             bin = "tool"
             sha256 = "abc123456"
         "#;
 
-        let registry: Registry = toml::from_str(toml_input).expect("Failed to parse registry TOML");
+        let manifest: PackageManifest =
+            toml::from_str(toml_input).expect("Failed to parse package manifest");
 
-        assert!(registry.packages.contains_key("test-tool"));
-        let pkg = &registry.packages["test-tool"];
-        assert_eq!(pkg.version, "1.0.0");
+        assert_eq!(manifest.version, "1.0.0");
 
-        let target = &pkg.targets["x86_64-linux"];
+        let target = &manifest.targets["x86_64-linux"];
         assert_eq!(target.bin, "tool");
     }
 
     #[test]
+    /// Verify we can parse an existing installed.json format
+    /// If this test fails, it means we broke compatibility with our existing state files.
     fn test_state_json_contract() {
-        // Verify we can parse an existing installed.json format
-        // If this test fails, it means we broke compatibility with our existing state files.
         let json_input = r#"
         {
             "packages": {
@@ -81,8 +84,8 @@ mod tests {
     }
 
     #[test]
+    /// Verify that Saving -> Loading gives the exact same data
     fn test_state_round_trip() {
-        // Verify that Saving -> Loading gives the exact same data
         let mut original = State::default();
         original.packages.insert(
             "foo".to_string(),
