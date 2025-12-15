@@ -24,6 +24,19 @@ pub struct TargetDefinition {
     pub sha256: String,
 }
 
+// --- GITHUB API DATA ---
+#[derive(Deserialize, Debug)]
+pub struct GitHubRelease {
+    pub tag_name: String,
+    pub assets: Vec<GitHubAsset>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GitHubAsset {
+    pub name: String,
+    pub browser_download_url: String,
+}
+
 // --- STATE DATA ---
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct State {

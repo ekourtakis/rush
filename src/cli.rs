@@ -26,6 +26,37 @@ pub enum Commands {
     Upgrade,
     /// Remove temporary files from failed installs
     Clean,
+
+    #[command(hide = true)]
+    /// Developer commands (hidden from help)
+    Dev {
+        #[command(subcommand)]
+        command: DevCommands,
+    },
+}
+
+#[derive(Subcommand, Debug, PartialEq)]
+/// Developer commands
+pub enum DevCommands {
+    /// Add a package target to the local registry file
+    Add {
+        /// Package name (e.g. "fzf")
+        name: String,
+        /// Package version (e.g. "0.56.3")
+        version: String,
+        /// System target (e.g. "x86_64-linux")
+        target: String,
+        /// Download URL
+        url: String,
+        /// Binary name inside the archive (defaults to package name)
+        #[arg(long)]
+        bin: Option<String>,
+    },
+    /// Interactive wizard to import a package from GitHub
+    Import {
+        /// Repository (e.g. "sharkdp/bat")
+        repo: String,
+    },
 }
 
 // --- TESTS ---

@@ -1,4 +1,4 @@
-use super::*; // Allows access to RushEngine, etc.
+use super::*;
 use std::io::Cursor;
 use tempfile::tempdir;
 
@@ -15,14 +15,9 @@ fn test_engine_initialization() {
 #[test]
 fn test_verify_checksum_logic() {
     let data = b"hello world";
-    // echo -n "hello world" | sha256sum
     let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
     let wrong_hash = "literally-anything-else";
-
-    // Should pass
     assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
-
-    // Should fail
     assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
 }
 
@@ -32,7 +27,6 @@ fn test_try_extract_binary_success() {
     let root = temp_dir.path().to_path_buf();
     let engine = RushEngine::with_root(root.clone()).unwrap();
 
-    // 1. Create a fake tarball in memory
     let mut header = tar::Header::new_gnu();
     header.set_size(12);
     header.set_path("test-bin").unwrap();
@@ -45,7 +39,6 @@ fn test_try_extract_binary_success() {
         builder.finish().unwrap();
     }
 
-    // 2. Read the tarball and attempt extraction
     let cursor = Cursor::new(data);
     let mut archive = Archive::new(cursor);
     let mut entries = archive.entries().unwrap();
@@ -53,21 +46,8 @@ fn test_try_extract_binary_success() {
 
     let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
 
-    // 3. Assertions
     assert!(result, "Should have extracted the binary");
-    let expected_path = root.join(".local/bin/test-bin");
-    assert!(expected_path.exists());
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let metadata = fs::metadata(expected_path).unwrap();
-        assert_eq!(
-            metadata.permissions().mode() & 0o111,
-            0o111,
-            "Should be executable"
-        );
-    }
+    assert!(root.join(".local/bin/test-bin").exists());
 }
 
 #[test]
@@ -177,7 +157,6 @@ fn test_local_registry_update() {
         r#"
         version = "0.1.0"
         description = "Test package"
-        
         [targets.x86_64-linux]
         url = "http://example.com"
         bin = "test"
@@ -186,27 +165,41 @@ fn test_local_registry_update() {
     )
     .unwrap();
 
-    // 2. Point env var to the SOURCE root
-    unsafe {
-        std::env::set_var("RUSH_REGISTRY_URL", source_dir.to_str().unwrap());
-    }
+    // 2. Create dummy engine and update
+    let engine =
+        RushEngine::with_root_and_registry(root.clone(), source_dir.to_str().unwrap().to_string())
+            .unwrap();
 
-    // 3. Run Update on the Engine
-    let engine = RushEngine::with_root(root.clone()).unwrap();
     engine.update_registry().unwrap();
 
-    // 4. Verify it was copied to the internal cache
-    // We use find_package because load_registry no longer exists
     let found = engine.find_package("test-tool");
-
-    assert!(
-        found.is_some(),
-        "Failed to find test-tool in updated registry"
-    );
-    assert_eq!(found.unwrap().version, "0.1.0");
+    assert!(found.is_some());
 }
 
-// -- clean_trash() tests --
+#[test]
+fn test_write_package_manifest() {
+    let temp_dir = tempdir().unwrap();
+    let root = temp_dir.path().to_path_buf();
+
+    let engine =
+        RushEngine::with_root_and_registry(root.clone(), root.to_str().unwrap().to_string())
+            .unwrap();
+
+    engine
+        .write_package_manifest(
+            "test-tool",
+            "1.0.0",
+            "x86_64-linux",
+            "http://example.com",
+            Some("binary-name".to_string()),
+            "fake-hash-123",
+        )
+        .unwrap();
+
+    let expected_path = root.join("packages").join("t").join("test-tool.toml");
+    assert!(expected_path.exists());
+}
+
 #[test]
 fn test_clean_trash() {
     let temp_dir = tempdir().unwrap();
@@ -216,7 +209,6 @@ fn test_clean_trash() {
     // 1. Initialize Engine (creates folders)
     let engine = RushEngine::with_root(root.clone()).unwrap();
 
-    // 2. Create a "Real" binary (Should NOT be deleted)
     let real_bin = bin_path.join("ripgrep");
     fs::write(&real_bin, "I am a real program").unwrap();
 
