@@ -1,0 +1,6 @@
+version = "1.2.3"
+
+[targets.x86_64-linux]
+url = "https://github.com/bootandy/dust/releases/download/v1.2.3/dust-v1.2.3-i686-unknown-linux-musl.tar.gz"
+bin = "dust"
+sha256 = "ea840d8a38b7b21c3e7437d371b61d02ded0d04c83992ac1cebf29634c6cc03a"
