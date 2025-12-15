@@ -100,17 +100,21 @@ To use developer commands that modify the registry, you must set `RUSH_REGISTRY_
 
 | Command | Description |
 | :--- | :--- |
-| **`rush dev add`** | Add or update a package target in the local registry |
+| **`rush dev add`** | Add or update a package target in the local registry. [Usage](#add). |
+| **`rush dev import`** | Interactive wizard to import packages from GitHub |
+| **`rush dev --help`** | Show help message. |
 
-**Usage:**
+#### Usage
 
 ```bash
 # 1. Point to your local registry source (must be writable)
 export RUSH_REGISTRY_URL="$(pwd)"
 
-# 2. Add a target
-# Syntax: rush dev add <NAME> <VERSION> <TARGET> <URL> [--bin <BINARY_NAME>]
-rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat-linux.tar.gz --bin bat
+# 2. Use the Wizard (Recommended)
+rush dev import sharkdp/bat
+
+# 3. Or use the Manual Command
+rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
 ```
 
 ### Testing

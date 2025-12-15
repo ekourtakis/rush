@@ -22,23 +22,33 @@ pub struct RushEngine {
     registry_dir: PathBuf,             // ~/.local/share/rush/registry/
     bin_path: PathBuf,                 // ~/.local/bin
     client: reqwest::blocking::Client, // HTTP Client
+    registry_source: String,
 }
 
 impl RushEngine {
     /// Standard constructor
-    /// Load the engine and state from disk
+    /// Reads HOME and Env Vars automatically.
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("No home dir")?;
-        Self::init(home)
+        let source =
+            std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+        Self::init(home, source)
     }
 
-    /// Test constructor (dependency injection)
+    /// Test constructor: Isolated Root + Default Registry
+    /// Use this for tests that don't care about where the registry comes from (e.g. state, uninstall).
     pub fn with_root(root: PathBuf) -> Result<Self> {
-        Self::init(root)
+        Self::init(root, DEFAULT_REGISTRY_URL.to_string())
+    }
+
+    /// Test constructor: Isolated Root + Custom Registry Source
+    /// Use this for tests that update registry (dev add/import/update)
+    pub fn with_root_and_registry(root: PathBuf, registry_source: String) -> Result<Self> {
+        Self::init(root, registry_source)
     }
 
     /// Shared initialization logic
-    fn init(root: PathBuf) -> Result<Self> {
+    fn init(root: PathBuf, registry_source: String) -> Result<Self> {
         let state_dir = root.join(".local/share/rush");
         let bin_path = root.join(".local/bin");
         let state_path = state_dir.join("installed.json");
@@ -54,7 +64,6 @@ impl RushEngine {
             State::default()
         };
 
-        // Initialize Client
         let client = reqwest::blocking::Client::builder()
             .user_agent(concat!("rush/", env!("CARGO_PKG_VERSION")))
             .build()?;
@@ -65,6 +74,7 @@ impl RushEngine {
             registry_dir,
             bin_path,
             client,
+            registry_source,
         })
     }
 
@@ -205,8 +215,8 @@ impl RushEngine {
 
     /// Download the registry from the internet OR copy it from a local directory
     pub fn update_registry(&self) -> Result<()> {
-        let source =
-            std::env::var("RUSH_REGISTRY_URL").unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+        // Dependecy injection
+        let source = &self.registry_source;
 
         println!("{} from {}...", "Fetching registry".cyan(), source);
 
@@ -217,7 +227,7 @@ impl RushEngine {
         fs::create_dir_all(&self.registry_dir)?;
 
         if source.starts_with("http") {
-            let content = self.download_with_progress(&source)?;
+            let content = self.download_with_progress(source)?;
 
             let tar = GzDecoder::new(&content[..]);
             let mut archive = Archive::new(tar);
@@ -386,44 +396,6 @@ impl RushEngine {
         url: String,
         bin_name: Option<String>,
     ) -> Result<()> {
-        // 1. Identify the local registry source
-        // We MUST be pointing to a local directory to write files.
-        let source = std::env::var("RUSH_REGISTRY_URL").unwrap_or_default();
-
-        let source_path = PathBuf::from(&source);
-        if source.is_empty() || !source_path.exists() || !source_path.is_dir() {
-            anyhow::bail!(
-                "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'."
-            );
-        }
-
-        // 2. Determine file path: root/packages/f/fzf.toml
-        let prefix = name.chars().next().context("Package name empty")?;
-        let package_dir = source_path.join("packages").join(prefix.to_string());
-        let package_path = package_dir.join(format!("{}.toml", name));
-
-        // 3. Load existing or create new manifest
-        let mut manifest = if package_path.exists() {
-            let content = std::fs::read_to_string(&package_path)?;
-            toml::from_str::<PackageManifest>(&content).unwrap_or_else(|_| PackageManifest {
-                version: version.clone(),
-                description: None,
-                targets: std::collections::BTreeMap::new(),
-            })
-        } else {
-            // Ensure parent dir exists (packages/f/)
-            if !package_dir.exists() {
-                std::fs::create_dir_all(&package_dir)?;
-            }
-            PackageManifest {
-                version: version.clone(),
-                description: None,
-                targets: std::collections::BTreeMap::new(),
-            }
-        };
-
-        // 4. Download and Hash
-        // We reuse the private helper we wrote in the last PR!
         println!("{} {}", "Fetching and hashing:".cyan(), url);
         let content = self.download_with_progress(&url)?;
 
@@ -432,18 +404,66 @@ impl RushEngine {
         let sha256 = hex::encode(hasher.finalize());
         println!("{} {}", "Calculated Hash:".green(), sha256);
 
-        // 5. Update Struct
-        manifest.version = version; // Always update version
+        // Delegate to the logic we can test
+        self.write_package_manifest(&name, &version, &target_arch, &url, bin_name, &sha256)
+    }
+
+    /// Internal helper: Updates the registry file. Separated for testing.
+    /// This function uses self.registry_source to determine where to write.
+    pub fn write_package_manifest(
+        &self,
+        name: &str,
+        version: &str,
+        target_arch: &str,
+        url: &str,
+        bin_name: Option<String>,
+        sha256: &str,
+    ) -> Result<()> {
+        // 1. Dependecny injection
+        let source_path = PathBuf::from(&self.registry_source);
+
+        if self.registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
+            anyhow::bail!(
+                "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'. Try 'export RUSH_REGISTRY_URL=\"$(pwd)\"'"
+            );
+        }
+
+        // 2. Determine file path: e.g., packages/f/fzf.toml
+        let prefix = name.chars().next().context("Package name empty")?;
+        let package_dir = source_path.join("packages").join(prefix.to_string());
+        let package_path = package_dir.join(format!("{}.toml", name));
+
+        // 3. Load existing or create new manifest
+        let mut manifest = if package_path.exists() {
+            let content = std::fs::read_to_string(&package_path)?;
+            toml::from_str::<PackageManifest>(&content).unwrap_or_else(|_| PackageManifest {
+                version: version.to_string(),
+                description: None,
+                targets: std::collections::BTreeMap::new(),
+            })
+        } else {
+            if !package_dir.exists() {
+                std::fs::create_dir_all(&package_dir)?;
+            }
+            PackageManifest {
+                version: version.to_string(),
+                description: None,
+                targets: std::collections::BTreeMap::new(),
+            }
+        };
+
+        // 4. Update Struct
+        manifest.version = version.to_string();
         manifest.targets.insert(
-            target_arch.clone(),
+            target_arch.to_string(),
             TargetDefinition {
-                url,
-                bin: bin_name.unwrap_or(name.clone()),
-                sha256,
+                url: url.to_string(),
+                bin: bin_name.unwrap_or(name.to_string()),
+                sha256: sha256.to_string(),
             },
         );
 
-        // 6. Write back
+        // 5. Write back
         let toml_string = toml::to_string_pretty(&manifest)?;
         std::fs::write(&package_path, toml_string)?;
 
@@ -451,7 +471,7 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Developer Tool: Interactive Import from GitHub
+    /// Developer Tool: Interactive Import wizard from GitHub
     pub fn import_github_package(&self, repo: &str) -> Result<()> {
         println!("{} metadata for {}...", "Fetching".cyan(), repo);
 
@@ -480,16 +500,14 @@ impl RushEngine {
             .map(|asset| asset.name.clone())
             .collect();
 
-        // Add a "Skip" option at the end
         asset_options.push("Skip this target".to_string());
 
         for (desc, target_key) in targets {
-            // Interactive Menu
             let selection = Select::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!("Select asset for {}", desc.bold()))
                 .default(0)
                 .items(&asset_options)
-                .interact()?; // This handles arrow keys, enter, etc.
+                .interact()?;
 
             // Check if they selected the last option ("Skip")
             if selection == asset_options.len() - 1 {
@@ -510,7 +528,6 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Helper: Download with progress bar, returns content as Vec<u8>
     fn download_with_progress(&self, url: &str) -> Result<Vec<u8>> {
         let mut response = self.client.get(url).send()?.error_for_status()?;
         let total_size = response.content_length().unwrap_or(0);
@@ -541,4 +558,4 @@ impl RushEngine {
 
 // --- TESTS ---
 #[cfg(test)]
-mod tests; // core/tests.rs
+mod tests;
