@@ -89,7 +89,7 @@ rush update
 
 ```sh
 # In "rush" directory
-RUSH_REGISTRY_URL="$(pwd)"
+export RUSH_REGISTRY_URL="$(pwd)"
 ```
 
 ## Development
