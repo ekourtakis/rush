@@ -468,6 +468,8 @@ impl RushEngine {
         std::fs::write(&package_path, toml_string)?;
 
         println!("{} Written to {:?}", "Success:".green(), package_path);
+        println!("Run 'rush update' to update registry cache with added package.");
+
         Ok(())
     }
 
