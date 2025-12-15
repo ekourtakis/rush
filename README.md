@@ -48,8 +48,11 @@ Once installed, you can use the `rush` command.
 | **`rush uninstall <name>`** | Remove a package and delete its binary |
 | **`rush update`** | Reload the registry |
 | **`rush clean`** | Remove temporary files from failed installs |
+| **`rush --help`** | Show help message |
 
 If you haven't built the binary, you can use cargo run with all commands, e.g.: `cargo run -- install <name>`.
+
+There are developer commands hidden from the default help message. See [Developer Commands](#developer-commands).
 
 ### Example Workflow
 
@@ -90,6 +93,25 @@ RUSH_REGISTRY_URL="$(pwd)"
 ```
 
 ## Development
+
+### Developer Commands
+
+To use developer commands that modify the registry, you must set `RUSH_REGISTRY_URL` to your local git repository path.
+
+| Command | Description |
+| :--- | :--- |
+| **`rush dev add`** | Add or update a package target in the local registry |
+
+**Usage:**
+
+```bash
+# 1. Point to your local registry source (must be writable)
+export RUSH_REGISTRY_URL="$(pwd)"
+
+# 2. Add a target
+# Syntax: rush dev add <NAME> <VERSION> <TARGET> <URL> [--bin <BINARY_NAME>]
+rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat-linux.tar.gz --bin bat
+```
 
 ### Testing
 

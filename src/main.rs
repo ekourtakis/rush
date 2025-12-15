@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use colored::*;
 
-use rush::cli::{Cli, Commands};
+use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
 
 fn main() -> Result<()> {
@@ -115,6 +115,24 @@ fn main() -> Result<()> {
         }
 
         Commands::Clean => engine.clean_trash()?,
+
+        Commands::Dev { command } => match command {
+            DevCommands::Add {
+                name,
+                version,
+                target,
+                url,
+                bin,
+            } => {
+                engine.add_package_manual(
+                    name.clone(),
+                    version.clone(),
+                    target.clone(),
+                    url.clone(),
+                    bin.clone(),
+                )?;
+            }
+        },
     }
 
     Ok(())

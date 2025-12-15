@@ -376,6 +376,80 @@ impl RushEngine {
         Ok(())
     }
 
+    /// Developer Tool: Create/Update a local package manifest
+    pub fn add_package_manual(
+        &self,
+        name: String,
+        version: String,
+        target_arch: String,
+        url: String,
+        bin_name: Option<String>,
+    ) -> Result<()> {
+        // 1. Identify the local registry source
+        // We MUST be pointing to a local directory to write files.
+        let source = std::env::var("RUSH_REGISTRY_URL").unwrap_or_default();
+
+        let source_path = PathBuf::from(&source);
+        if source.is_empty() || !source_path.exists() || !source_path.is_dir() {
+            anyhow::bail!(
+                "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'."
+            );
+        }
+
+        // 2. Determine file path: root/packages/f/fzf.toml
+        let prefix = name.chars().next().context("Package name empty")?;
+        let package_dir = source_path.join("packages").join(prefix.to_string());
+        let package_path = package_dir.join(format!("{}.toml", name));
+
+        // 3. Load existing or create new manifest
+        let mut manifest = if package_path.exists() {
+            let content = std::fs::read_to_string(&package_path)?;
+            toml::from_str::<PackageManifest>(&content).unwrap_or_else(|_| PackageManifest {
+                version: version.clone(),
+                description: None,
+                targets: std::collections::BTreeMap::new(),
+            })
+        } else {
+            // Ensure parent dir exists (packages/f/)
+            if !package_dir.exists() {
+                std::fs::create_dir_all(&package_dir)?;
+            }
+            PackageManifest {
+                version: version.clone(),
+                description: None,
+                targets: std::collections::BTreeMap::new(),
+            }
+        };
+
+        // 4. Download and Hash
+        // We reuse the private helper we wrote in the last PR!
+        println!("{} {}", "Fetching and hashing:".cyan(), url);
+        let content = self.download_with_progress(&url)?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&content);
+        let sha256 = hex::encode(hasher.finalize());
+        println!("{} {}", "Calculated Hash:".green(), sha256);
+
+        // 5. Update Struct
+        manifest.version = version; // Always update version
+        manifest.targets.insert(
+            target_arch.clone(),
+            TargetDefinition {
+                url,
+                bin: bin_name.unwrap_or(name.clone()),
+                sha256,
+            },
+        );
+
+        // 6. Write back
+        let toml_string = toml::to_string_pretty(&manifest)?;
+        std::fs::write(&package_path, toml_string)?;
+
+        println!("{} Written to {:?}", "Success:".green(), package_path);
+        Ok(())
+    }
+
     /// Helper: Download with progress bar, returns content as Vec<u8>
     fn download_with_progress(&self, url: &str) -> Result<Vec<u8>> {
         let mut response = self.client.get(url).send()?.error_for_status()?;
