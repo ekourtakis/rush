@@ -52,6 +52,11 @@ pub enum DevCommands {
         #[arg(long)]
         bin: Option<String>,
     },
+    /// Interactive wizard to import a package from GitHub
+    Import {
+        /// Repository (e.g. "sharkdp/bat")
+        repo: String,
+    }
 }
 
 // --- TESTS ---
