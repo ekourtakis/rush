@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 
 /// Default URL to fetch the registry from, overridable by env variable
 const DEFAULT_REGISTRY_URL: &str =
-    "https://github.com/ekourtakis/rush/archive/refs/heads/refactor/registry.tar.gz";
+    "https://github.com/ekourtakis/rush/archive/refs/heads/main.tar.gz";
 
 /// The core engine that handles state and I/O
 pub struct RushEngine {
