@@ -1,7 +1,7 @@
 use crate::models::{InstalledPackage, PackageManifest, State, TargetDefinition};
 use anyhow::{Context, Result};
 use colored::*;
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{Select, theme::ColorfulTheme};
 use flate2::read::GzDecoder;
 use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
@@ -454,28 +454,32 @@ impl RushEngine {
     /// Developer Tool: Interactive Import from GitHub
     pub fn import_github_package(&self, repo: &str) -> Result<()> {
         println!("{} metadata for {}...", "Fetching".cyan(), repo);
-        
+
         let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-        let release: crate::models::GitHubRelease = self.client.get(&api_url)
+        let release: crate::models::GitHubRelease = self
+            .client
+            .get(&api_url)
             .send()?
             .error_for_status()?
             .json()?;
 
         println!("Found Release: {}", release.tag_name.green());
-        
+
         let version = release.tag_name.trim_start_matches('v').to_string();
         let package_name = repo.split('/').nth(1).unwrap_or("unknown").to_string();
 
         let targets = vec![
-            ("Linux (x86_64)", "x86_64-linux"), 
-            ("macOS (Apple Silicon)", "aarch64-macos")
+            ("Linux (x86_64)", "x86_64-linux"),
+            ("macOS (Apple Silicon)", "aarch64-macos"),
         ];
 
         // Prepare the list of asset names for the menu
-        let mut asset_options: Vec<String> = release.assets.iter()
+        let mut asset_options: Vec<String> = release
+            .assets
+            .iter()
             .map(|asset| asset.name.clone())
             .collect();
-        
+
         // Add a "Skip" option at the end
         asset_options.push("Skip this target".to_string());
 
@@ -494,13 +498,13 @@ impl RushEngine {
             }
 
             let asset = &release.assets[selection];
-            
+
             self.add_package_manual(
                 package_name.clone(),
                 version.clone(),
-                target_key.to_string(), 
+                target_key.to_string(),
                 asset.browser_download_url.clone(),
-                None
+                None,
             )?;
         }
         Ok(())

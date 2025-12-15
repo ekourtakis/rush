@@ -131,7 +131,7 @@ fn main() -> Result<()> {
                     url.clone(),
                     bin.clone(),
                 )?;
-            },
+            }
             DevCommands::Import { repo } => {
                 engine.import_github_package(repo)?;
             }

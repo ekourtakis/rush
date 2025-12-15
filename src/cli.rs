@@ -56,7 +56,7 @@ pub enum DevCommands {
     Import {
         /// Repository (e.g. "sharkdp/bat")
         repo: String,
-    }
+    },
 }
 
 // --- TESTS ---
