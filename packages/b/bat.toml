@@ -6,6 +6,6 @@ bin = "bat"
 sha256 = "e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 
 [targets.x86_64-linux]
-url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-aarch64-unknown-linux-gnu.tar.gz"
+url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-gnu.tar.gz"
 bin = "bat"
-sha256 = "422eb73e11c854fddd99f5ca8461c2f1d6e6dce0a2a8c3d5daade5ffcb6564aa"
+sha256 = "726f04c8f576a7fd18b7634f1bbf2f915c43494c1c0f013baa3287edb0d5a2a3"
