@@ -231,77 +231,31 @@ impl RushEngine {
             source: source.clone(),
         });
 
-        // Wipe old registry to ensure deleted packages are removed
+        // Wipe old registry for a clean update
         if self.registry_dir.exists() {
             fs::remove_dir_all(&self.registry_dir)?;
         }
         fs::create_dir_all(&self.registry_dir)?;
 
-        if source.starts_with("http") {
-            // A. Remote Tarball (Streaming with progress events)
-            let mut response = self.client.get(source).send()?.error_for_status()?;
-            let total_size = response.content_length().unwrap_or(0);
-
-            let mut content = Vec::with_capacity(total_size as usize);
-            let mut buffer = [0; 8192];
-
-            on_event(crate::models::UpdateEvent::Progress {
-                bytes: 0,
-                total: total_size,
-            });
-
-            loop {
-                let bytes_read = response.read(&mut buffer)?;
-                if bytes_read == 0 {
-                    break;
-                }
-                content.extend_from_slice(&buffer[..bytes_read]);
-                on_event(crate::models::UpdateEvent::Progress {
-                    bytes: bytes_read as u64,
-                    total: total_size,
-                });
-            }
-
-            on_event(crate::models::UpdateEvent::Unpacking);
-
-            let tar = GzDecoder::new(&content[..]);
-            let mut archive = Archive::new(tar);
-
-            // GitHub archives usually start with "rush-refactor-registry/packages/..."
-            // We need to find the "packages/" folder and extract it to our registry root.
-            for entry in archive.entries()? {
-                let mut entry = entry?;
-                let path = entry.path()?;
-                if let Some(idx) = path.to_string_lossy().find("packages/") {
-                    let relative_path = &path.to_string_lossy()[idx..];
-                    let dest = self.registry_dir.join(relative_path);
-
-                    if let Some(parent) = dest.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    entry.unpack(dest)?;
-                }
-            }
-        } else {
-            // Local Directory (No progress needed, it's instant)
+        // --- Guard Clause for Local Directory (Dev/Test Mode) ---
+        if !source.starts_with("http") {
             let source_path = PathBuf::from(source);
-
             if !source_path.exists() {
                 anyhow::bail!("Local registry path not found: {:?}", source_path);
             }
 
             let pkg_source = source_path.join("packages");
-            let pkg_dest = self.registry_dir.join("packages");
-
             if !pkg_source.exists() {
+                // If 'packages' folder doesn't exist, there's nothing to copy.
+                // We can just return successfully.
                 return Ok(crate::models::UpdateResult {
                     source: source.clone(),
                 });
             }
 
+            let pkg_dest = self.registry_dir.join("packages");
             for entry in WalkDir::new(&pkg_source) {
                 let entry = entry?;
-                // Calculate relative path to preserve structure
                 if let Ok(rel_path) = entry.path().strip_prefix(&pkg_source) {
                     let dest_path = pkg_dest.join(rel_path);
                     if entry.file_type().is_dir() {
@@ -310,6 +264,52 @@ impl RushEngine {
                         fs::copy(entry.path(), &dest_path)?;
                     }
                 }
+            }
+            // Return after the local copy is finished.
+            return Ok(crate::models::UpdateResult {
+                source: source.clone(),
+            });
+        }
+
+        // --- Remote Tarball ---
+        let mut response = self.client.get(source).send()?.error_for_status()?;
+        let total_size = response.content_length().unwrap_or(0);
+
+        let mut content = Vec::with_capacity(total_size as usize);
+        let mut buffer = [0; 8192];
+
+        on_event(crate::models::UpdateEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
+
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            content.extend_from_slice(&buffer[..bytes_read]);
+            on_event(crate::models::UpdateEvent::Progress {
+                bytes: bytes_read as u64,
+                total: total_size,
+            });
+        }
+
+        on_event(crate::models::UpdateEvent::Unpacking);
+
+        let tar = GzDecoder::new(&content[..]);
+        let mut archive = Archive::new(tar);
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?;
+            if let Some(idx) = path.to_string_lossy().find("packages/") {
+                let relative_path = &path.to_string_lossy()[idx..];
+                let dest = self.registry_dir.join(relative_path);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                entry.unpack(dest)?;
             }
         }
 
