@@ -16,6 +16,7 @@ const DEFAULT_REGISTRY_URL: &str =
     "https://github.com/ekourtakis/rush/archive/refs/heads/main.tar.gz";
 
 pub mod clean;
+pub mod uninstall;
 
 /// The core engine that handles state and I/O
 pub struct RushEngine {
@@ -234,27 +235,7 @@ impl RushEngine {
         &mut self,
         name: &str,
     ) -> Result<Option<crate::models::UninstallResult>> {
-        let Some(pkg) = self.state.packages.get(name) else {
-            return Ok(None); // Package not installed
-        };
-
-        let mut removed_bins = Vec::new();
-
-        for binary in &pkg.binaries {
-            let p = self.bin_path.join(binary);
-            if p.exists() {
-                fs::remove_file(&p)?;
-                removed_bins.push(binary.clone());
-            }
-        }
-
-        self.state.packages.remove(name);
-        self.save()?;
-
-        Ok(Some(crate::models::UninstallResult {
-            package_name: name.to_string(),
-            binaries_removed: removed_bins,
-        }))
+        uninstall::uninstall_package(self, name)
     }
 
     /// Download the registry from the internet OR copy it from a local directory
