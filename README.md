@@ -6,13 +6,21 @@ rush is a proof-of-concept package manager written in Rust. It demonstrates how 
 
 ## Prerequisites
 
-The only prerequisite is Rust. **[Get Rust here](https://rustup.rs/)**.
-
 I work only on x86 Linux, and cannot confirm rush works on any other platform.
 
 ## Installation
 
-You can compile and install the `rush` binary directly into your local user path using Cargo.
+Use the installer script: 
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh
+```
+
+### Build and Install
+
+You must have Rust installed to build. **[Get Rust here](https://rustup.rs/)**.
+
+You can compile and install the `rush` binary directly into `~/.local/bin` using Cargo.
 
 1. **Clone the repository:**
 
