@@ -15,14 +15,16 @@ use walkdir::WalkDir;
 const DEFAULT_REGISTRY_URL: &str =
     "https://github.com/ekourtakis/rush/archive/refs/heads/main.tar.gz";
 
+pub mod clean;
+
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
-    state_path: PathBuf,               // ~/.local/share/rush/installed.json
-    registry_dir: PathBuf,             // ~/.local/share/rush/registry/
-    bin_path: PathBuf,                 // ~/.local/bin
-    client: reqwest::blocking::Client, // HTTP Client
-    registry_source: String,
+    pub(crate) state_path: PathBuf,
+    pub(crate) registry_dir: PathBuf,
+    pub(crate) bin_path: PathBuf,
+    pub(crate) client: reqwest::blocking::Client,
+    pub(crate) registry_source: String,
 }
 
 impl RushEngine {
@@ -423,29 +425,8 @@ impl RushEngine {
 
     /// Remove temporary files from failed installs
     pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
-        // Read the bin directory
-        // We use read_dir which returns an iterator over entries
-        let bin_dir = std::fs::read_dir(&self.bin_path)?;
-        let mut deleted_files = Vec::new();
-
-        for entry in bin_dir {
-            let entry = entry?;
-            let path = entry.path();
-
-            if let Some(name) = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .filter(|n| n.starts_with(".rush-tmp-"))
-            {
-                std::fs::remove_file(&path)?;
-                println!("{} {:?}", "Deleted trash:".yellow(), name);
-                deleted_files.push(name.to_string());
-            }
-        }
-
-        Ok(crate::models::CleanResult {
-            files_cleaned: deleted_files,
-        })
+        // Delegate to the submodule
+        clean::clean_trash(self)
     }
 
     /// Developer Tool: Create/Update a local package manifest

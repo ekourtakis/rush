@@ -205,36 +205,6 @@ fn test_write_package_manifest() {
 }
 
 #[test]
-fn test_clean_trash() {
-    let temp_dir = tempdir().unwrap();
-    let root = temp_dir.path().to_path_buf();
-    let bin_path = root.join(".local/bin");
-
-    // 1. Initialize Engine (creates folders)
-    let engine = RushEngine::with_root(root.clone()).unwrap();
-
-    let real_bin = bin_path.join("ripgrep");
-    fs::write(&real_bin, "I am a real program").unwrap();
-
-    // 3. Create "Trash" files (SHOULD be deleted)
-    let trash1 = bin_path.join(".rush-tmp-12345");
-    let trash2 = bin_path.join(".rush-tmp-abcde");
-    fs::write(&trash1, "junk data").unwrap();
-    fs::write(&trash2, "more junk").unwrap();
-
-    // 4. Run the cleaner
-    engine.clean_trash().unwrap();
-
-    // 5. Verify results
-    assert!(
-        real_bin.exists(),
-        "The real binary was accidentally deleted!"
-    );
-    assert!(!trash1.exists(), "Trash file 1 still exists!");
-    assert!(!trash2.exists(), "Trash file 2 still exists!");
-}
-
-#[test]
 /// This confirms that if found == false, your install_package function
 /// will trigger the "Binary missing in archive" error.
 fn test_install_fails_gracefully_if_binary_missing() {
