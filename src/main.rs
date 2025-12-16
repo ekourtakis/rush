@@ -52,7 +52,53 @@ fn main() -> Result<()> {
 
             if let Some(manifest) = engine.find_package(name) {
                 if let Some(target) = manifest.targets.get(&current_target) {
-                    engine.install_package(name, &manifest.version, target)?;
+                    println!(
+                        "{} {} (v{})...",
+                        "Installing".cyan(),
+                        name,
+                        manifest.version
+                    );
+
+                    // UI SETUP
+                    let mut pb: Option<ProgressBar> = None;
+
+                    let event_handler = |event: rush::models::InstallEvent| match event {
+                        rush::models::InstallEvent::Downloading { total_bytes } => {
+                            let b = ProgressBar::new(total_bytes);
+                            b.set_style(
+                                    ProgressStyle::default_bar()
+                                        .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                                        .unwrap()
+                                        .progress_chars("#>-"),
+                                );
+                            pb = Some(b);
+                        }
+                        rush::models::InstallEvent::Progress { bytes, total: _ } => {
+                            if let Some(bar) = &pb {
+                                bar.inc(bytes);
+                            }
+                        }
+                        rush::models::InstallEvent::VerifyingChecksum => {
+                            if let Some(bar) = &pb {
+                                bar.finish_and_clear();
+                            }
+                            println!("{}", "Verifying checksum...".cyan());
+                        }
+                        rush::models::InstallEvent::Success => {
+                            println!("{}", "Checksum Verified.".green());
+                        }
+                        _ => {}
+                    };
+
+                    // CALL ENGINE
+                    match engine.install_package(name, &manifest.version, target, event_handler) {
+                        Ok(result) => {
+                            println!("{} Installed to {:?}", "Success:".green(), result.path);
+                        }
+                        Err(e) => {
+                            println!("{} {}", "Error:".red(), e);
+                        }
+                    }
                 } else {
                     println!(
                         "{} No compatible binary for {}",
@@ -61,17 +107,13 @@ fn main() -> Result<()> {
                     );
                 }
             } else {
-                println!(
-                    "{} Package '{}' not found. Run 'rush update'?",
-                    "Error:".red(),
-                    name
-                );
+                println!("{} Package '{}' not found.", "Error:".red(), name);
             }
         }
 
         Commands::Uninstall { name } => {
             let result = engine.uninstall_package(name)?;
-            
+
             if let Some(res) = result {
                 println!("{} {}...", "Uninstalling".cyan(), res.package_name);
                 for binary in res.binaries_removed {
@@ -110,15 +152,43 @@ fn main() -> Result<()> {
                     current_ver,
                     manifest.version
                 );
-                engine.install_package(&name, &manifest.version, target)?;
+
+                // --- Event Handler for Upgrade ---
+                let mut pb: Option<ProgressBar> = None;
+                let event_handler = |event: rush::models::InstallEvent| match event {
+                    rush::models::InstallEvent::Downloading { total_bytes } => {
+                        let b = ProgressBar::new(total_bytes);
+                        b.set_style(
+                                ProgressStyle::default_bar()
+                                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                                    .unwrap()
+                                    .progress_chars("#>-"),
+                            );
+                        pb = Some(b);
+                    }
+                    rush::models::InstallEvent::Progress { bytes, .. } => {
+                        if let Some(bar) = &pb {
+                            bar.inc(bytes);
+                        }
+                    }
+                    rush::models::InstallEvent::VerifyingChecksum => {
+                        if let Some(bar) = &pb {
+                            bar.finish_and_clear();
+                        }
+                        println!("{}", "Verifying checksum...".cyan());
+                    }
+                    rush::models::InstallEvent::Success => {
+                        println!("{}", "Checksum Verified.".green());
+                    }
+                    _ => {}
+                };
+
+                // Pass the handler
+                engine.install_package(&name, &manifest.version, target, event_handler)?;
                 count += 1;
             }
 
-            if count == 0 {
-                println!("{}", "All packages are up to date.".green());
-            } else {
-                println!("{} Upgraded {} packages", "Success:".green(), count);
-            }
+            println!("{} {} packages upgraded.", "Success:".green(), count);
         }
 
         Commands::Update => {
@@ -152,12 +222,16 @@ fn main() -> Result<()> {
                     }
                 }
             };
-            
+
             // 3. Call the silent core logic, passing the UI handler
             let result = engine.update_registry(event_handler)?;
-            
+
             // 4. Print the final success message
-            println!("{} Registry updated from {}.", "Success:".green(), result.source);
+            println!(
+                "{} Registry updated from {}.",
+                "Success:".green(),
+                result.source
+            );
         }
 
         Commands::Clean => {

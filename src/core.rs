@@ -85,42 +85,75 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download and Install a package
-    pub fn install_package(
+    /// Download and Install a package.
+    /// Reports progress via the `on_event` callback.
+    pub fn install_package<F>(
         &mut self,
         name: &str,
         version: &str,
         target: &TargetDefinition,
-    ) -> Result<()> {
-        println!("{} {} (v{})...", "Installing".cyan(), name, version);
+        mut on_event: F,
+    ) -> Result<crate::models::InstallResult>
+    where
+        F: FnMut(crate::models::InstallEvent),
+    {
+        // 1. Download
+        let mut response = self.client.get(&target.url).send()?.error_for_status()?;
+        let total_size = response.content_length().unwrap_or(0);
 
-        let content = self.download_with_progress(&target.url)?;
+        on_event(crate::models::InstallEvent::Downloading {
+            total_bytes: total_size,
+        });
 
-        println!("{}", "Verifying checksum...".cyan());
+        // STREAMING DOWNLOAD
+        let mut content = Vec::with_capacity(total_size as usize);
+        let mut buffer = [0; 8192];
+
+        // Initial progress event
+        on_event(crate::models::InstallEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
+
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            content.extend_from_slice(&buffer[..bytes_read]);
+            on_event(crate::models::InstallEvent::Progress {
+                bytes: bytes_read as u64,
+                total: total_size,
+            });
+        }
+
+        // 2. Verify Checksum
+        on_event(crate::models::InstallEvent::VerifyingChecksum);
         Self::verify_checksum(&content, &target.sha256)?;
-        println!("{}", "Checksum Verified.".green());
 
-        // Extract
+        // 3. Extract
+        on_event(crate::models::InstallEvent::Extracting);
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
+        let mut final_path = PathBuf::new();
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-
-            // Returns true if it extracted the file
-            if self.try_extract_binary(&mut entry, &target.bin)? {
+            // Modify try_extract_binary to return the path if successful
+            if let Some(dest) = self.try_extract_binary(&mut entry, &target.bin)? {
+                final_path = dest;
                 found = true;
-                break; // Stop scanning the tarball once we find the binary
+                break;
             }
         }
 
         if !found {
-            println!("{}", "Error: Binary not found in archive".red());
-            anyhow::bail!("Binary missing in archive");
+            // UI will catch this error and print it.
+            anyhow::bail!("Binary '{}' not found in archive", target.bin);
         }
 
-        // Update State
+        // 4. Update State
         self.state.packages.insert(
             name.to_string(),
             InstalledPackage {
@@ -130,28 +163,32 @@ impl RushEngine {
         );
         self.save()?;
 
-        Ok(())
+        on_event(crate::models::InstallEvent::Success);
+
+        Ok(crate::models::InstallResult {
+            package_name: name.to_string(),
+            version: version.to_string(),
+            path: final_path,
+        })
     }
 
-    /// Helper for `install_package()`: Checks if the current tar entry is the binary we want.
-    /// If yes, performs the atomic install and returns `true`.
-    /// If no, returns `false`.
+    // Helper: Returns Some(path) if successful, None if skipped
     fn try_extract_binary<R: std::io::Read>(
         &self,
         entry: &mut tar::Entry<R>,
         target_bin_name: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<PathBuf>> {
         let path = entry.path()?;
 
         // Guard Clause 1: Check if filename exists
         let fname = match path.file_name() {
             Some(f) => f,
-            None => return Ok(false),
+            None => return Ok(None),
         };
 
         // Guard Clause 2: Check if filename matches target
         if fname != std::ffi::OsStr::new(target_bin_name) {
-            return Ok(false);
+            return Ok(None);
         }
 
         // --- ATOMIC INSTALL LOGIC ---
@@ -172,9 +209,8 @@ impl RushEngine {
         }
 
         temp_file.persist(&dest)?;
-        println!("{} Installed to {:?}", "Success:".green(), dest);
 
-        Ok(true)
+        Ok(Some(dest))
     }
 
     /// Verify checksum of given content against expected hash

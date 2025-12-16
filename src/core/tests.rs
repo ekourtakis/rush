@@ -46,7 +46,7 @@ fn test_try_extract_binary_success() {
 
     let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
 
-    assert!(result, "Should have extracted the binary");
+    assert!(result.is_some(), "Should have extracted the binary");
     assert!(root.join(".local/bin/test-bin").exists());
 }
 
@@ -76,7 +76,10 @@ fn test_try_extract_binary_mismatch() {
 
     let result = engine.try_extract_binary(&mut entry, "test-bin").unwrap();
 
-    assert!(!result, "Should not have extracted mismatched filename");
+    assert!(
+        result.is_none(),
+        "Should not have extracted mismatched filename"
+    );
     assert!(!root.join(".local/bin/test-bin").exists());
 }
 
@@ -265,6 +268,7 @@ fn test_install_fails_gracefully_if_binary_missing() {
         if engine
             .try_extract_binary(&mut entry, "target_file")
             .unwrap()
+            .is_some()
         {
             found = true;
             break;

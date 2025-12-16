@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 // --- REGISTRY DATA ---
 /// Represents one file (e.g. `packages/f/fzf.toml`)
@@ -73,7 +74,32 @@ pub struct UpdateResult {
     pub source: String,
 }
 
+/// Result of RushEngine::install_package()
+#[derive(Debug)]
+pub struct InstallResult {
+    /// The name of the package installed
+    pub package_name: String,
+    /// The version installed
+    pub version: String,
+    /// The final path to the binary on disk
+    pub path: PathBuf,
+}
+
 // --- REAL-TIME EVENTS ---
+
+/// Event from `RushEngine::install_package()`
+pub enum InstallEvent {
+    /// The download has started
+    Downloading { total_bytes: u64 },
+    /// A chunk of the download has been received
+    Progress { bytes: u64, total: u64 },
+    /// Calculating SHA256
+    VerifyingChecksum,
+    /// Extracting the archive
+    Extracting,
+    /// Installation complete (before returning result)
+    Success,
+}
 
 /// Event from `RushEngine::update_registry()`
 pub enum UpdateEvent {
@@ -84,7 +110,6 @@ pub enum UpdateEvent {
     /// The download is complete and is being unpacked.
     Unpacking,
 }
-
 
 #[cfg(test)]
 mod tests {
