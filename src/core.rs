@@ -85,42 +85,75 @@ impl RushEngine {
         Ok(())
     }
 
-    /// Download and Install a package
-    pub fn install_package(
+    /// Download and Install a package.
+    /// Reports progress via the `on_event` callback.
+    pub fn install_package<F>(
         &mut self,
         name: &str,
         version: &str,
         target: &TargetDefinition,
-    ) -> Result<()> {
-        println!("{} {} (v{})...", "Installing".cyan(), name, version);
+        mut on_event: F,
+    ) -> Result<crate::models::InstallResult>
+    where
+        F: FnMut(crate::models::InstallEvent),
+    {
+        // 1. Download
+        let mut response = self.client.get(&target.url).send()?.error_for_status()?;
+        let total_size = response.content_length().unwrap_or(0);
 
-        let content = self.download_with_progress(&target.url)?;
+        on_event(crate::models::InstallEvent::Downloading {
+            total_bytes: total_size,
+        });
 
-        println!("{}", "Verifying checksum...".cyan());
+        // STREAMING DOWNLOAD
+        let mut content = Vec::with_capacity(total_size as usize);
+        let mut buffer = [0; 8192];
+
+        // Initial progress event
+        on_event(crate::models::InstallEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
+
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            content.extend_from_slice(&buffer[..bytes_read]);
+            on_event(crate::models::InstallEvent::Progress {
+                bytes: bytes_read as u64,
+                total: total_size,
+            });
+        }
+
+        // 2. Verify Checksum
+        on_event(crate::models::InstallEvent::VerifyingChecksum);
         Self::verify_checksum(&content, &target.sha256)?;
-        println!("{}", "Checksum Verified.".green());
 
-        // Extract
+        // 3. Extract
+        on_event(crate::models::InstallEvent::Extracting);
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
+        let mut final_path = PathBuf::new();
 
         for entry in archive.entries()? {
             let mut entry = entry?;
-
-            // Returns true if it extracted the file
-            if self.try_extract_binary(&mut entry, &target.bin)? {
+            // Modify try_extract_binary to return the path if successful
+            if let Some(dest) = self.try_extract_binary(&mut entry, &target.bin)? {
+                final_path = dest;
                 found = true;
-                break; // Stop scanning the tarball once we find the binary
+                break;
             }
         }
 
         if !found {
-            println!("{}", "Error: Binary not found in archive".red());
-            anyhow::bail!("Binary missing in archive");
+            // UI will catch this error and print it.
+            anyhow::bail!("Binary '{}' not found in archive", target.bin);
         }
 
-        // Update State
+        // 4. Update State
         self.state.packages.insert(
             name.to_string(),
             InstalledPackage {
@@ -130,28 +163,32 @@ impl RushEngine {
         );
         self.save()?;
 
-        Ok(())
+        on_event(crate::models::InstallEvent::Success);
+
+        Ok(crate::models::InstallResult {
+            package_name: name.to_string(),
+            version: version.to_string(),
+            path: final_path,
+        })
     }
 
-    /// Helper for `install_package()`: Checks if the current tar entry is the binary we want.
-    /// If yes, performs the atomic install and returns `true`.
-    /// If no, returns `false`.
+    // Helper: Returns Some(path) if successful, None if skipped
     fn try_extract_binary<R: std::io::Read>(
         &self,
         entry: &mut tar::Entry<R>,
         target_bin_name: &str,
-    ) -> Result<bool> {
+    ) -> Result<Option<PathBuf>> {
         let path = entry.path()?;
 
         // Guard Clause 1: Check if filename exists
         let fname = match path.file_name() {
             Some(f) => f,
-            None => return Ok(false),
+            None => return Ok(None),
         };
 
         // Guard Clause 2: Check if filename matches target
         if fname != std::ffi::OsStr::new(target_bin_name) {
-            return Ok(false);
+            return Ok(None);
         }
 
         // --- ATOMIC INSTALL LOGIC ---
@@ -172,9 +209,8 @@ impl RushEngine {
         }
 
         temp_file.persist(&dest)?;
-        println!("{} Installed to {:?}", "Success:".green(), dest);
 
-        Ok(true)
+        Ok(Some(dest))
     }
 
     /// Verify checksum of given content against expected hash
@@ -192,89 +228,70 @@ impl RushEngine {
         Ok(())
     }
 
-    pub fn uninstall_package(&mut self, name: &str) -> Result<()> {
-        if let Some(pkg) = self.state.packages.get(name) {
-            println!("{} {}...", "Uninstalling".cyan(), name);
+    pub fn uninstall_package(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<crate::models::UninstallResult>> {
+        let Some(pkg) = self.state.packages.get(name) else {
+            return Ok(None); // Package not installed
+        };
 
-            for binary in &pkg.binaries {
-                let p = self.bin_path.join(binary);
-                if p.exists() {
-                    fs::remove_file(&p)?;
-                    println!("   - Deleted {:?}", p);
-                }
+        let mut removed_bins = Vec::new();
+
+        for binary in &pkg.binaries {
+            let p = self.bin_path.join(binary);
+            if p.exists() {
+                fs::remove_file(&p)?;
+                removed_bins.push(binary.clone());
             }
-
-            self.state.packages.remove(name);
-            self.save()?;
-            println!("{}", "Success: Uninstalled".green());
-        } else {
-            println!("{} Package '{}' is not installed", "Error:".red(), name);
         }
-        Ok(())
+
+        self.state.packages.remove(name);
+        self.save()?;
+
+        Ok(Some(crate::models::UninstallResult {
+            package_name: name.to_string(),
+            binaries_removed: removed_bins,
+        }))
     }
 
     /// Download the registry from the internet OR copy it from a local directory
-    pub fn update_registry(&self) -> Result<()> {
+    /// Reports progress via the `on_event` callback.
+    pub fn update_registry<F>(&self, mut on_event: F) -> Result<crate::models::UpdateResult>
+    where
+        F: FnMut(crate::models::UpdateEvent),
+    {
         // Dependecy injection
         let source = &self.registry_source;
+        on_event(crate::models::UpdateEvent::Fetching {
+            source: source.clone(),
+        });
 
-        println!("{} from {}...", "Fetching registry".cyan(), source);
-
-        // Wipe old registry to ensure deleted packages are removed
+        // Wipe old registry for a clean update
         if self.registry_dir.exists() {
             fs::remove_dir_all(&self.registry_dir)?;
         }
         fs::create_dir_all(&self.registry_dir)?;
 
-        if source.starts_with("http") {
-            let content = self.download_with_progress(source)?;
-
-            let tar = GzDecoder::new(&content[..]);
-            let mut archive = Archive::new(tar);
-
-            // GitHub archives usually start with "rush-refactor-registry/packages/..."
-            // We need to find the "packages/" folder and extract it to our registry root.
-            for entry in archive.entries()? {
-                let mut entry = entry?;
-                let path = entry.path()?;
-                let path_str = path.to_string_lossy();
-
-                // Look for "packages/" inside the tarball path
-                if let Some(idx) = path_str.find("packages/") {
-                    // Extract relative path: packages/f/fzf.toml
-                    let relative_path = &path_str[idx..];
-                    let dest = self.registry_dir.join(relative_path);
-
-                    if let Some(parent) = dest.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    entry.unpack(dest)?;
-                }
-            }
-        } else {
-            // LOCAL DIRECTORY MODE
-            let source_path = PathBuf::from(&source);
+        // --- Guard Clause for Local Directory (Dev/Test Mode) ---
+        if !source.starts_with("http") {
+            let source_path = PathBuf::from(source);
             if !source_path.exists() {
                 anyhow::bail!("Local registry path not found: {:?}", source_path);
             }
 
             let pkg_source = source_path.join("packages");
-            let pkg_dest = self.registry_dir.join("packages");
-
             if !pkg_source.exists() {
-                println!(
-                    "{} No 'packages' directory found in {:?}",
-                    "Warning:".yellow(),
-                    source_path
-                );
-                return Ok(());
+                // If 'packages' folder doesn't exist, there's nothing to copy.
+                // We can just return successfully.
+                return Ok(crate::models::UpdateResult {
+                    source: source.clone(),
+                });
             }
 
-            println!("Copying local registry from {:?}...", pkg_source);
-
+            let pkg_dest = self.registry_dir.join("packages");
             for entry in WalkDir::new(&pkg_source) {
                 let entry = entry?;
-                // Calculate relative path to preserve structure
                 if let Ok(rel_path) = entry.path().strip_prefix(&pkg_source) {
                     let dest_path = pkg_dest.join(rel_path);
                     if entry.file_type().is_dir() {
@@ -284,10 +301,57 @@ impl RushEngine {
                     }
                 }
             }
+            // Return after the local copy is finished.
+            return Ok(crate::models::UpdateResult {
+                source: source.clone(),
+            });
         }
 
-        println!("{} Registry updated.", "Success:".green());
-        Ok(())
+        // --- Remote Tarball ---
+        let mut response = self.client.get(source).send()?.error_for_status()?;
+        let total_size = response.content_length().unwrap_or(0);
+
+        let mut content = Vec::with_capacity(total_size as usize);
+        let mut buffer = [0; 8192];
+
+        on_event(crate::models::UpdateEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
+
+        loop {
+            let bytes_read = response.read(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            content.extend_from_slice(&buffer[..bytes_read]);
+            on_event(crate::models::UpdateEvent::Progress {
+                bytes: bytes_read as u64,
+                total: total_size,
+            });
+        }
+
+        on_event(crate::models::UpdateEvent::Unpacking);
+
+        let tar = GzDecoder::new(&content[..]);
+        let mut archive = Archive::new(tar);
+
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let path = entry.path()?;
+            if let Some(idx) = path.to_string_lossy().find("packages/") {
+                let relative_path = &path.to_string_lossy()[idx..];
+                let dest = self.registry_dir.join(relative_path);
+                if let Some(parent) = dest.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                entry.unpack(dest)?;
+            }
+        }
+
+        Ok(crate::models::UpdateResult {
+            source: source.clone(),
+        })
     }
 
     /// Look up a specific package file (e.g. .../registry/packages/f/fzf.toml)
@@ -358,11 +422,11 @@ impl RushEngine {
     }
 
     /// Remove temporary files from failed installs
-    pub fn clean_trash(&self) -> Result<()> {
+    pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
         // Read the bin directory
         // We use read_dir which returns an iterator over entries
         let bin_dir = std::fs::read_dir(&self.bin_path)?;
-        let mut count = 0;
+        let mut deleted_files = Vec::new();
 
         for entry in bin_dir {
             let entry = entry?;
@@ -375,16 +439,13 @@ impl RushEngine {
             {
                 std::fs::remove_file(&path)?;
                 println!("{} {:?}", "Deleted trash:".yellow(), name);
-                count += 1;
+                deleted_files.push(name.to_string());
             }
         }
 
-        if count == 0 {
-            println!("{}", "No trash found. System is clean.".green());
-        } else {
-            println!("{} {} temporary files.", "Cleaned".green(), count);
-        }
-        Ok(())
+        Ok(crate::models::CleanResult {
+            files_cleaned: deleted_files,
+        })
     }
 
     /// Developer Tool: Create/Update a local package manifest
