@@ -2,10 +2,10 @@ version = "0.11.4"
 
 [targets.aarch64-macos]
 url = "https://github.com/ClementTsang/bottom/releases/download/0.11.4/bottom_aarch64-apple-darwin.tar.gz"
-bin = "bottom"
+bin = "btm"
 sha256 = "fe5b2beb0eae230d87c9c5c33ad1c68bf59a3d1d7ba95a8473b0486d2222b9e0"
 
 [targets.x86_64-linux]
 url = "https://github.com/ClementTsang/bottom/releases/download/0.11.4/bottom_x86_64-unknown-linux-musl.tar.gz"
-bin = "bottom"
+bin = "btm"
 sha256 = "a1e853d862bcceba6b44981071a6b49314397d96cdd3a4169c820d6fc35fc41e"
