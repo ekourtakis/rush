@@ -27,10 +27,13 @@ fn test_binary_fails_invalid_command() {
 fn test_binary_version() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
 
+    // Dynamically get the version from Cargo.toml at compile time
+    let expected_version = format!("rush {}", env!("CARGO_PKG_VERSION"));
+
     cmd.arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("rush 0.1.0"));
+        .stdout(predicate::str::contains(expected_version));
 }
 
 #[test]
