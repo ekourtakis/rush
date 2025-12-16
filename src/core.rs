@@ -495,29 +495,54 @@ impl RushEngine {
             ("macOS (Apple Silicon)", "aarch64-macos"),
         ];
 
-        // Prepare the list of asset names for the menu
-        let mut asset_options: Vec<String> = release
-            .assets
-            .iter()
-            .map(|asset| asset.name.clone())
-            .collect();
-
-        asset_options.push("Skip this target".to_string());
-
         for (desc, target_key) in targets {
+            // 1. Create a scored list of assets
+            // We store (score, original_index, asset_reference)
+            let mut scored_assets: Vec<(i32, usize, &crate::models::GitHubAsset)> = release
+                .assets
+                .iter()
+                .enumerate()
+                .map(|(i, asset)| {
+                    (
+                        Self::calculate_asset_score(&asset.name, target_key),
+                        i,
+                        asset,
+                    )
+                })
+                .collect();
+
+            // 2. Sort by score descending (Best match first)
+            scored_assets.sort_by(|a, b| b.0.cmp(&a.0));
+
+            // 3. Create display strings
+            let mut menu_items: Vec<String> = scored_assets
+                .iter()
+                .map(|(score, _, asset)| {
+                    // Visual hint for high scoring matches
+                    if *score > 0 {
+                        format!("{} (Recommended)", asset.name)
+                    } else {
+                        asset.name.clone()
+                    }
+                })
+                .collect();
+
+            menu_items.push("Skip this target".to_string());
+
+            // 4. Interactive Menu
             let selection = Select::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!("Select asset for {}", desc.bold()))
-                .default(0)
-                .items(&asset_options)
+                .default(0) // Default to the highest scored item
+                .items(&menu_items)
                 .interact()?;
 
-            // Check if they selected the last option ("Skip")
-            if selection == asset_options.len() - 1 {
+            if selection == menu_items.len() - 1 {
                 println!("Skipping {}", target_key);
                 continue;
             }
 
-            let asset = &release.assets[selection];
+            // 5. Retrieve the actual asset using the original index
+            let (_, _, asset) = scored_assets[selection];
 
             self.add_package_manual(
                 package_name.clone(),
@@ -555,6 +580,81 @@ impl RushEngine {
         pb.finish_with_message("Download complete");
 
         Ok(content)
+    }
+
+    /// Helper to rank assets based on how well they match the target architecture
+    fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
+        let name = name.to_lowercase();
+        let mut score = 0;
+
+        // --- GLOBAL PREFERENCES ---
+        // We prefer tarballs because we have built-in extraction
+        if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+            score += 20;
+        }
+        // We dislike zips (for now) as we might not handle them perfectly on all OSes yet
+        if name.ends_with(".zip") {
+            score -= 10;
+        }
+        // We cannot handle system packages
+        if name.ends_with(".deb") || name.ends_with(".rpm") || name.ends_with(".msi") {
+            score -= 100;
+        }
+        // We don't want metadata files
+        if name.contains("sha256") || name.contains("sum") || name.contains("sig") {
+            score -= 100;
+        }
+
+        match target_arch {
+            "x86_64-linux" => {
+                // Good keywords
+                if name.contains("linux") {
+                    score += 10;
+                }
+                if name.contains("x86_64") || name.contains("amd64") {
+                    score += 10;
+                }
+                if name.contains("musl") {
+                    score += 5;
+                } // Prefer static linking
+                if name.contains("gnu") {
+                    score += 3;
+                }
+
+                // Bad keywords (Wrong Arch/OS)
+                if name.contains("aarch64") || name.contains("arm") {
+                    score -= 50;
+                }
+                if name.contains("darwin") || name.contains("apple") || name.contains("macos") {
+                    score -= 50;
+                }
+                if name.contains("windows") || name.contains(".exe") {
+                    score -= 50;
+                }
+            }
+            "aarch64-macos" => {
+                // Good keywords
+                if name.contains("apple") || name.contains("darwin") || name.contains("macos") {
+                    score += 10;
+                }
+                if name.contains("aarch64") || name.contains("arm64") {
+                    score += 10;
+                }
+
+                // Bad keywords
+                if name.contains("linux") {
+                    score -= 50;
+                }
+                if name.contains("x86_64") || name.contains("amd64") {
+                    score -= 50;
+                }
+                if name.contains("windows") || name.contains(".exe") {
+                    score -= 50;
+                }
+            }
+            _ => {}
+        }
+        score
     }
 }
 
