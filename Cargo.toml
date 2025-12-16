@@ -2,6 +2,10 @@
 name = "rush"
 version = "0.1.0"
 edition = "2024"
+description = "A lightning-fast toy package manager"
+repository = "https://github.com/ekourtakis/rush"
+license = "MIT"
+publish = false
 
 [dependencies]
 anyhow = "1.0.100"
