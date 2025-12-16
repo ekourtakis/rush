@@ -49,6 +49,13 @@ pub struct InstalledPackage {
     pub binaries: Vec<String>,
 }
 
+// -- FUNCTION RESULTS ---
+
+#[derive(Debug)]
+pub struct CleanResult {
+    pub files_cleaned: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

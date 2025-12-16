@@ -114,7 +114,22 @@ fn main() -> Result<()> {
             engine.update_registry()?;
         }
 
-        Commands::Clean => engine.clean_trash()?,
+        Commands::Clean => {
+            let result = engine.clean_trash()?;
+
+            if result.files_cleaned.is_empty() {
+                println!("{}", "No trash found. System is clean.".green());
+            } else {
+                for filename in &result.files_cleaned {
+                    println!("{} {:?}", "Deleted trash:".yellow(), filename);
+                }
+                println!(
+                    "{} {} temporary files.",
+                    "Cleaned".green(),
+                    result.files_cleaned.len()
+                );
+            }
+        }
 
         Commands::Dev { command } => match command {
             DevCommands::Add {

@@ -358,11 +358,11 @@ impl RushEngine {
     }
 
     /// Remove temporary files from failed installs
-    pub fn clean_trash(&self) -> Result<()> {
+    pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
         // Read the bin directory
         // We use read_dir which returns an iterator over entries
         let bin_dir = std::fs::read_dir(&self.bin_path)?;
-        let mut count = 0;
+        let mut deleted_files = Vec::new();
 
         for entry in bin_dir {
             let entry = entry?;
@@ -375,16 +375,13 @@ impl RushEngine {
             {
                 std::fs::remove_file(&path)?;
                 println!("{} {:?}", "Deleted trash:".yellow(), name);
-                count += 1;
+                deleted_files.push(name.to_string());
             }
         }
 
-        if count == 0 {
-            println!("{}", "No trash found. System is clean.".green());
-        } else {
-            println!("{} {} temporary files.", "Cleaned".green(), count);
-        }
-        Ok(())
+        Ok(crate::models::CleanResult {
+            files_cleaned: deleted_files,
+        })
     }
 
     /// Developer Tool: Create/Update a local package manifest
