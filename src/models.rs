@@ -51,9 +51,19 @@ pub struct InstalledPackage {
 
 // -- FUNCTION RESULTS ---
 
+/// Result of RushEngine::clean_trash0
 #[derive(Debug)]
 pub struct CleanResult {
     pub files_cleaned: Vec<String>,
+}
+
+/// Result of RushEngine::uninstall_package()
+#[derive(Debug)]
+pub struct UninstallResult {
+    /// The name of the package that was uninstalled.
+    pub package_name: String,
+    /// The list of binary files that were deleted.
+    pub binaries_removed: Vec<String>,
 }
 
 #[cfg(test)]

@@ -192,25 +192,31 @@ impl RushEngine {
         Ok(())
     }
 
-    pub fn uninstall_package(&mut self, name: &str) -> Result<()> {
-        if let Some(pkg) = self.state.packages.get(name) {
-            println!("{} {}...", "Uninstalling".cyan(), name);
+    pub fn uninstall_package(
+        &mut self,
+        name: &str,
+    ) -> Result<Option<crate::models::UninstallResult>> {
+        let Some(pkg) = self.state.packages.get(name) else {
+            return Ok(None); // Package not installed
+        };
 
-            for binary in &pkg.binaries {
-                let p = self.bin_path.join(binary);
-                if p.exists() {
-                    fs::remove_file(&p)?;
-                    println!("   - Deleted {:?}", p);
-                }
+        let mut removed_bins = Vec::new();
+
+        for binary in &pkg.binaries {
+            let p = self.bin_path.join(binary);
+            if p.exists() {
+                fs::remove_file(&p)?;
+                removed_bins.push(binary.clone());
             }
-
-            self.state.packages.remove(name);
-            self.save()?;
-            println!("{}", "Success: Uninstalled".green());
-        } else {
-            println!("{} Package '{}' is not installed", "Error:".red(), name);
         }
-        Ok(())
+
+        self.state.packages.remove(name);
+        self.save()?;
+
+        Ok(Some(crate::models::UninstallResult {
+            package_name: name.to_string(),
+            binaries_removed: removed_bins,
+        }))
     }
 
     /// Download the registry from the internet OR copy it from a local directory
