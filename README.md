@@ -127,7 +127,7 @@ rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
 
 ### Testing
 
-Unit tests are located at the end of source files; integration tests are in `tests/`.
+Unit tests are either located at the end of source files or in the module folder (e.g., tests for `src/core.rs` are within `src/core/tests.rs`). Integration tests are in `tests/`.
 
 Run all tests:
 

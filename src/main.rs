@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
+use indicatif::{ProgressBar, ProgressStyle};
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
@@ -121,7 +122,42 @@ fn main() -> Result<()> {
         }
 
         Commands::Update => {
-            engine.update_registry()?;
+            // 1. Prepare UI elements (the progress bar)
+            let mut pb: Option<ProgressBar> = None;
+
+            // 2. Define the callback function
+            let event_handler = |event: rush::models::UpdateEvent| {
+                match event {
+                    rush::models::UpdateEvent::Fetching { source } => {
+                        println!("{} from {}...", "Fetching registry".cyan(), source);
+                    }
+                    rush::models::UpdateEvent::Progress { bytes, total } => {
+                        // Create the progress bar on the first progress event
+                        let bar = pb.get_or_insert_with(|| {
+                            let b = ProgressBar::new(total);
+                            b.set_style(
+                                ProgressStyle::default_bar()
+                                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                                    .unwrap()
+                                    .progress_chars("#>-"),
+                            );
+                            b
+                        });
+                        bar.inc(bytes);
+                    }
+                    rush::models::UpdateEvent::Unpacking => {
+                        if let Some(bar) = pb.take() {
+                            bar.finish_with_message("Download complete");
+                        }
+                    }
+                }
+            };
+            
+            // 3. Call the silent core logic, passing the UI handler
+            let result = engine.update_registry(event_handler)?;
+            
+            // 4. Print the final success message
+            println!("{} Registry updated from {}.", "Success:".green(), result.source);
         }
 
         Commands::Clean => {

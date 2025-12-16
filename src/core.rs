@@ -220,11 +220,16 @@ impl RushEngine {
     }
 
     /// Download the registry from the internet OR copy it from a local directory
-    pub fn update_registry(&self) -> Result<()> {
+    /// Reports progress via the `on_event` callback.
+    pub fn update_registry<F>(&self, mut on_event: F) -> Result<crate::models::UpdateResult>
+    where
+        F: FnMut(crate::models::UpdateEvent),
+    {
         // Dependecy injection
         let source = &self.registry_source;
-
-        println!("{} from {}...", "Fetching registry".cyan(), source);
+        on_event(crate::models::UpdateEvent::Fetching {
+            source: source.clone(),
+        });
 
         // Wipe old registry to ensure deleted packages are removed
         if self.registry_dir.exists() {
@@ -233,7 +238,31 @@ impl RushEngine {
         fs::create_dir_all(&self.registry_dir)?;
 
         if source.starts_with("http") {
-            let content = self.download_with_progress(source)?;
+            // A. Remote Tarball (Streaming with progress events)
+            let mut response = self.client.get(source).send()?.error_for_status()?;
+            let total_size = response.content_length().unwrap_or(0);
+
+            let mut content = Vec::with_capacity(total_size as usize);
+            let mut buffer = [0; 8192];
+
+            on_event(crate::models::UpdateEvent::Progress {
+                bytes: 0,
+                total: total_size,
+            });
+
+            loop {
+                let bytes_read = response.read(&mut buffer)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                content.extend_from_slice(&buffer[..bytes_read]);
+                on_event(crate::models::UpdateEvent::Progress {
+                    bytes: bytes_read as u64,
+                    total: total_size,
+                });
+            }
+
+            on_event(crate::models::UpdateEvent::Unpacking);
 
             let tar = GzDecoder::new(&content[..]);
             let mut archive = Archive::new(tar);
@@ -243,12 +272,8 @@ impl RushEngine {
             for entry in archive.entries()? {
                 let mut entry = entry?;
                 let path = entry.path()?;
-                let path_str = path.to_string_lossy();
-
-                // Look for "packages/" inside the tarball path
-                if let Some(idx) = path_str.find("packages/") {
-                    // Extract relative path: packages/f/fzf.toml
-                    let relative_path = &path_str[idx..];
+                if let Some(idx) = path.to_string_lossy().find("packages/") {
+                    let relative_path = &path.to_string_lossy()[idx..];
                     let dest = self.registry_dir.join(relative_path);
 
                     if let Some(parent) = dest.parent() {
@@ -258,8 +283,9 @@ impl RushEngine {
                 }
             }
         } else {
-            // LOCAL DIRECTORY MODE
-            let source_path = PathBuf::from(&source);
+            // Local Directory (No progress needed, it's instant)
+            let source_path = PathBuf::from(source);
+
             if !source_path.exists() {
                 anyhow::bail!("Local registry path not found: {:?}", source_path);
             }
@@ -268,15 +294,10 @@ impl RushEngine {
             let pkg_dest = self.registry_dir.join("packages");
 
             if !pkg_source.exists() {
-                println!(
-                    "{} No 'packages' directory found in {:?}",
-                    "Warning:".yellow(),
-                    source_path
-                );
-                return Ok(());
+                return Ok(crate::models::UpdateResult {
+                    source: source.clone(),
+                });
             }
-
-            println!("Copying local registry from {:?}...", pkg_source);
 
             for entry in WalkDir::new(&pkg_source) {
                 let entry = entry?;
@@ -292,8 +313,9 @@ impl RushEngine {
             }
         }
 
-        println!("{} Registry updated.", "Success:".green());
-        Ok(())
+        Ok(crate::models::UpdateResult {
+            source: source.clone(),
+        })
     }
 
     /// Look up a specific package file (e.g. .../registry/packages/f/fzf.toml)

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 // --- REGISTRY DATA ---
-/// Represents one file (e.g. packages/f/fzf.toml)
+/// Represents one file (e.g. `packages/f/fzf.toml`)
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct PackageManifest {
     pub version: String,
@@ -51,13 +51,13 @@ pub struct InstalledPackage {
 
 // -- FUNCTION RESULTS ---
 
-/// Result of RushEngine::clean_trash0
+/// Result of `RushEngine::clean_trash()`
 #[derive(Debug)]
 pub struct CleanResult {
     pub files_cleaned: Vec<String>,
 }
 
-/// Result of RushEngine::uninstall_package()
+/// Result of `RushEngine::uninstall_package()`
 #[derive(Debug)]
 pub struct UninstallResult {
     /// The name of the package that was uninstalled.
@@ -65,6 +65,26 @@ pub struct UninstallResult {
     /// The list of binary files that were deleted.
     pub binaries_removed: Vec<String>,
 }
+
+/// Result of RushEngine::update_registry()
+#[derive(Debug)]
+pub struct UpdateResult {
+    /// The source URL or path the registry was updated from.
+    pub source: String,
+}
+
+// --- REAL-TIME EVENTS ---
+
+/// Event from `RushEngine::update_registry()`
+pub enum UpdateEvent {
+    /// The download of the registry has started.
+    Fetching { source: String },
+    /// A chunk of the download has been received.
+    Progress { bytes: u64, total: u64 },
+    /// The download is complete and is being unpacked.
+    Unpacking,
+}
+
 
 #[cfg(test)]
 mod tests {

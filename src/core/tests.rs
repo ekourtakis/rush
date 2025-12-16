@@ -145,8 +145,8 @@ fn test_local_registry_update() {
     let temp_dir = tempdir().unwrap();
     let root = temp_dir.path().to_path_buf();
 
-    // 1. Create a dummy registry SOURCE structure
-    // We need to mimic: source/packages/t/test-tool.toml
+    // Create a dummy registry SOURCE structure
+    // mimic packages/t/test-tool.toml
     let source_dir = temp_dir.path().join("source");
     let pkg_dir = source_dir.join("packages").join("t");
     std::fs::create_dir_all(&pkg_dir).unwrap();
@@ -155,22 +155,23 @@ fn test_local_registry_update() {
     std::fs::write(
         &dummy_toml,
         r#"
-        version = "0.1.0"
-        description = "Test package"
-        [targets.x86_64-linux]
-        url = "http://example.com"
-        bin = "test"
-        sha256 = "123"
-    "#,
+            version = "0.1.0"
+            description = "Test package"
+            [targets.x86_64-linux]
+            url = "http://example.com"
+            bin = "test"
+            sha256 = "123"
+        "#,
     )
     .unwrap();
 
-    // 2. Create dummy engine and update
+    // Create dummy engine and update
     let engine =
         RushEngine::with_root_and_registry(root.clone(), source_dir.to_str().unwrap().to_string())
             .unwrap();
 
-    engine.update_registry().unwrap();
+    // Pass an empty callback that ignores all events
+    engine.update_registry(|_| {}).unwrap();
 
     let found = engine.find_package("test-tool");
     assert!(found.is_some());
