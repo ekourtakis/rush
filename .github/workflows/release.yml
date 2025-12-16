@@ -23,7 +23,7 @@ jobs:
                       target: aarch64-apple-darwin
                       binary_name: rush
                       asset_name: rush-macos-arm64
-                    - os: macos-13 # Intel Mac
+                    - os: macos-latest
                       target: x86_64-apple-darwin
                       binary_name: rush
                       asset_name: rush-macos-intel
