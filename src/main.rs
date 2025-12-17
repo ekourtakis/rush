@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
+use dialoguer::{Select, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
 
 use rush::cli::{Cli, Commands, DevCommands};
@@ -13,7 +14,6 @@ fn main() -> Result<()> {
     let mut engine = RushEngine::new()?;
 
     // DETECT SYSTEM ARCHITECTURE
-    // e.g., "x86_64-linux" or "aarch64-apple-darwin"
     let current_target = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
 
     match &cli.command {
@@ -61,34 +61,7 @@ fn main() -> Result<()> {
 
                     // UI SETUP
                     let mut pb: Option<ProgressBar> = None;
-
-                    let event_handler = |event: rush::models::InstallEvent| match event {
-                        rush::models::InstallEvent::Downloading { total_bytes } => {
-                            let b = ProgressBar::new(total_bytes);
-                            b.set_style(
-                                    ProgressStyle::default_bar()
-                                        .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                                        .unwrap()
-                                        .progress_chars("#>-"),
-                                );
-                            pb = Some(b);
-                        }
-                        rush::models::InstallEvent::Progress { bytes, total: _ } => {
-                            if let Some(bar) = &pb {
-                                bar.inc(bytes);
-                            }
-                        }
-                        rush::models::InstallEvent::VerifyingChecksum => {
-                            if let Some(bar) = &pb {
-                                bar.finish_and_clear();
-                            }
-                            println!("{}", "Verifying checksum...".cyan());
-                        }
-                        rush::models::InstallEvent::Success => {
-                            println!("{}", "Checksum Verified.".green());
-                        }
-                        _ => {}
-                    };
+                    let event_handler = create_install_progress_handler(&mut pb);
 
                     // CALL ENGINE
                     match engine.install_package(name, &manifest.version, target, event_handler) {
@@ -155,33 +128,7 @@ fn main() -> Result<()> {
 
                 // --- Event Handler for Upgrade ---
                 let mut pb: Option<ProgressBar> = None;
-                let event_handler = |event: rush::models::InstallEvent| match event {
-                    rush::models::InstallEvent::Downloading { total_bytes } => {
-                        let b = ProgressBar::new(total_bytes);
-                        b.set_style(
-                                ProgressStyle::default_bar()
-                                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                                    .unwrap()
-                                    .progress_chars("#>-"),
-                            );
-                        pb = Some(b);
-                    }
-                    rush::models::InstallEvent::Progress { bytes, .. } => {
-                        if let Some(bar) = &pb {
-                            bar.inc(bytes);
-                        }
-                    }
-                    rush::models::InstallEvent::VerifyingChecksum => {
-                        if let Some(bar) = &pb {
-                            bar.finish_and_clear();
-                        }
-                        println!("{}", "Verifying checksum...".cyan());
-                    }
-                    rush::models::InstallEvent::Success => {
-                        println!("{}", "Checksum Verified.".green());
-                    }
-                    _ => {}
-                };
+                let event_handler = create_install_progress_handler(&mut pb);
 
                 // Pass the handler
                 engine.install_package(&name, &manifest.version, target, event_handler)?;
@@ -259,19 +206,114 @@ fn main() -> Result<()> {
                 url,
                 bin,
             } => {
+                println!("{} {}", "Fetching and hashing:".cyan(), url);
+
+                let mut pb: Option<ProgressBar> = None;
+                let event_handler = create_install_progress_handler(&mut pb);
+
                 engine.add_package_manual(
                     name.clone(),
                     version.clone(),
                     target.clone(),
                     url.clone(),
                     bin.clone(),
+                    event_handler,
                 )?;
+
+                println!("{} Added {} to local registry.", "Success:".green(), name);
             }
             DevCommands::Import { repo } => {
-                engine.import_github_package(repo)?;
+                println!("{} metadata for {}...", "Fetching".cyan(), repo);
+
+                // 1. Get Candidates from Core
+                let (pkg_name, version, candidates) =
+                    engine.fetch_github_import_candidates(repo)?;
+
+                println!("Found Release: {}", version.green());
+
+                // 2. Interactive Wizard
+                for candidate in candidates {
+                    // Create display strings
+                    let mut menu_items: Vec<String> = candidate
+                        .assets
+                        .iter()
+                        .map(|scored| {
+                            // Visual hint for high scoring matches
+                            if scored.score > 0 {
+                                format!("{} (Recommended)", scored.asset.name)
+                            } else {
+                                scored.asset.name.clone()
+                            }
+                        })
+                        .collect();
+
+                    menu_items.push("Skip this target".to_string());
+
+                    let selection = Select::with_theme(&ColorfulTheme::default())
+                        .with_prompt(format!("Select asset for {}", candidate.target_desc.bold()))
+                        .default(0)
+                        .items(&menu_items)
+                        .interact()?;
+
+                    if selection == menu_items.len() - 1 {
+                        println!("Skipping {}", candidate.target_slug);
+                        continue;
+                    }
+
+                    let asset = &candidate.assets[selection].asset;
+                    let url = asset.browser_download_url.clone();
+
+                    println!("{} {}", "Fetching and hashing:".cyan(), url);
+
+                    let mut pb: Option<ProgressBar> = None;
+                    let event_handler = create_install_progress_handler(&mut pb);
+
+                    engine.add_package_manual(
+                        pkg_name.clone(),
+                        version.clone(),
+                        candidate.target_slug,
+                        url,
+                        None,
+                        event_handler,
+                    )?;
+                }
+                println!("{}", "Import wizard complete.".green());
             }
         },
     }
 
     Ok(())
+}
+
+/// Helper to create a closure for install progress events
+fn create_install_progress_handler<'a>(
+    pb: &'a mut Option<ProgressBar>,
+) -> impl FnMut(rush::models::InstallEvent) + 'a {
+    move |event: rush::models::InstallEvent| match event {
+        rush::models::InstallEvent::Downloading { total_bytes } => {
+            let b = ProgressBar::new(total_bytes);
+            b.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            *pb = Some(b);
+        }
+        rush::models::InstallEvent::Progress { bytes, total: _ } => {
+            if let Some(bar) = pb {
+                bar.inc(bytes);
+            }
+        }
+        rush::models::InstallEvent::VerifyingChecksum => {
+            if let Some(bar) = pb {
+                bar.finish_and_clear();
+            }
+            println!("{}", "Verifying checksum...".cyan());
+        }
+        rush::models::InstallEvent::Success => {
+            println!("{}", "Checksum Verified.".green());
+        }
+        _ => {}
+    }
 }

@@ -1,9 +1,10 @@
-use crate::models::{InstalledPackage, PackageManifest, State, TargetDefinition};
+use crate::models::{
+    CleanResult, GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage,
+    PackageManifest, ScoredAsset, State, TargetDefinition, UninstallResult, UpdateEvent,
+    UpdateResult,
+};
 use anyhow::{Context, Result};
-use colored::*;
-use dialoguer::{Select, theme::ColorfulTheme};
 use flate2::read::GzDecoder;
-use indicatif::{ProgressBar, ProgressStyle};
 use sha2::{Digest, Sha256};
 use std::fs::{self};
 use std::io::Read;
@@ -36,13 +37,11 @@ impl RushEngine {
     }
 
     /// Test constructor: Isolated Root + Default Registry
-    /// Use this for tests that don't care about where the registry comes from (e.g. state, uninstall).
     pub fn with_root(root: PathBuf) -> Result<Self> {
         Self::init(root, DEFAULT_REGISTRY_URL.to_string())
     }
 
     /// Test constructor: Isolated Root + Custom Registry Source
-    /// Use this for tests that update registry (dev add/import/update)
     pub fn with_root_and_registry(root: PathBuf, registry_source: String) -> Result<Self> {
         Self::init(root, registry_source)
     }
@@ -86,53 +85,25 @@ impl RushEngine {
     }
 
     /// Download and Install a package.
-    /// Reports progress via the `on_event` callback.
     pub fn install_package<F>(
         &mut self,
         name: &str,
         version: &str,
         target: &TargetDefinition,
         mut on_event: F,
-    ) -> Result<crate::models::InstallResult>
+    ) -> Result<InstallResult>
     where
-        F: FnMut(crate::models::InstallEvent),
+        F: FnMut(InstallEvent),
     {
         // 1. Download
-        let mut response = self.client.get(&target.url).send()?.error_for_status()?;
-        let total_size = response.content_length().unwrap_or(0);
-
-        on_event(crate::models::InstallEvent::Downloading {
-            total_bytes: total_size,
-        });
-
-        // STREAMING DOWNLOAD
-        let mut content = Vec::with_capacity(total_size as usize);
-        let mut buffer = [0; 8192];
-
-        // Initial progress event
-        on_event(crate::models::InstallEvent::Progress {
-            bytes: 0,
-            total: total_size,
-        });
-
-        loop {
-            let bytes_read = response.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-            content.extend_from_slice(&buffer[..bytes_read]);
-            on_event(crate::models::InstallEvent::Progress {
-                bytes: bytes_read as u64,
-                total: total_size,
-            });
-        }
+        let content = self.download_url(&target.url, &mut on_event)?;
 
         // 2. Verify Checksum
-        on_event(crate::models::InstallEvent::VerifyingChecksum);
+        on_event(InstallEvent::VerifyingChecksum);
         Self::verify_checksum(&content, &target.sha256)?;
 
         // 3. Extract
-        on_event(crate::models::InstallEvent::Extracting);
+        on_event(InstallEvent::Extracting);
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
         let mut found = false;
@@ -149,7 +120,6 @@ impl RushEngine {
         }
 
         if !found {
-            // UI will catch this error and print it.
             anyhow::bail!("Binary '{}' not found in archive", target.bin);
         }
 
@@ -163,9 +133,9 @@ impl RushEngine {
         );
         self.save()?;
 
-        on_event(crate::models::InstallEvent::Success);
+        on_event(InstallEvent::Success);
 
-        Ok(crate::models::InstallResult {
+        Ok(InstallResult {
             package_name: name.to_string(),
             version: version.to_string(),
             path: final_path,
@@ -220,18 +190,16 @@ impl RushEngine {
         let hash = hex::encode(hasher.finalize());
 
         if hash != expected_hash {
-            println!("{} Hash mismatch!", "Error:".red());
-            println!("  Expected: {}", expected_hash);
-            println!("  Got:      {}", hash);
-            anyhow::bail!("Security check failed: Checksum mismatch");
+            anyhow::bail!(
+                "Security check failed: Checksum mismatch. Expected: {}, Got: {}",
+                expected_hash,
+                hash
+            );
         }
         Ok(())
     }
 
-    pub fn uninstall_package(
-        &mut self,
-        name: &str,
-    ) -> Result<Option<crate::models::UninstallResult>> {
+    pub fn uninstall_package(&mut self, name: &str) -> Result<Option<UninstallResult>> {
         let Some(pkg) = self.state.packages.get(name) else {
             return Ok(None); // Package not installed
         };
@@ -249,21 +217,20 @@ impl RushEngine {
         self.state.packages.remove(name);
         self.save()?;
 
-        Ok(Some(crate::models::UninstallResult {
+        Ok(Some(UninstallResult {
             package_name: name.to_string(),
             binaries_removed: removed_bins,
         }))
     }
 
     /// Download the registry from the internet OR copy it from a local directory
-    /// Reports progress via the `on_event` callback.
-    pub fn update_registry<F>(&self, mut on_event: F) -> Result<crate::models::UpdateResult>
+    pub fn update_registry<F>(&self, mut on_event: F) -> Result<UpdateResult>
     where
-        F: FnMut(crate::models::UpdateEvent),
+        F: FnMut(UpdateEvent),
     {
         // Dependecy injection
         let source = &self.registry_source;
-        on_event(crate::models::UpdateEvent::Fetching {
+        on_event(UpdateEvent::Fetching {
             source: source.clone(),
         });
 
@@ -283,8 +250,7 @@ impl RushEngine {
             let pkg_source = source_path.join("packages");
             if !pkg_source.exists() {
                 // If 'packages' folder doesn't exist, there's nothing to copy.
-                // We can just return successfully.
-                return Ok(crate::models::UpdateResult {
+                return Ok(UpdateResult {
                     source: source.clone(),
                 });
             }
@@ -302,7 +268,7 @@ impl RushEngine {
                 }
             }
             // Return after the local copy is finished.
-            return Ok(crate::models::UpdateResult {
+            return Ok(UpdateResult {
                 source: source.clone(),
             });
         }
@@ -314,7 +280,7 @@ impl RushEngine {
         let mut content = Vec::with_capacity(total_size as usize);
         let mut buffer = [0; 8192];
 
-        on_event(crate::models::UpdateEvent::Progress {
+        on_event(UpdateEvent::Progress {
             bytes: 0,
             total: total_size,
         });
@@ -325,13 +291,13 @@ impl RushEngine {
                 break;
             }
             content.extend_from_slice(&buffer[..bytes_read]);
-            on_event(crate::models::UpdateEvent::Progress {
+            on_event(UpdateEvent::Progress {
                 bytes: bytes_read as u64,
                 total: total_size,
             });
         }
 
-        on_event(crate::models::UpdateEvent::Unpacking);
+        on_event(UpdateEvent::Unpacking);
 
         let tar = GzDecoder::new(&content[..]);
         let mut archive = Archive::new(tar);
@@ -349,7 +315,7 @@ impl RushEngine {
             }
         }
 
-        Ok(crate::models::UpdateResult {
+        Ok(UpdateResult {
             source: source.clone(),
         })
     }
@@ -364,24 +330,10 @@ impl RushEngine {
             .join(prefix.to_string())
             .join(format!("{}.toml", name));
 
-        if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(content) => match toml::from_str(&content) {
-                    Ok(manifest) => Some(manifest),
-                    Err(e) => {
-                        println!("{} Failed to parse {:?}: {}", "Error:".red(), path, e);
-                        None
-                    }
-                },
-                Err(e) => {
-                    println!("{} Failed to read {:?}: {}", "Error:".red(), path, e);
-                    None
-                }
-            }
-        } else {
-            println!("DEBUG: Package file not found at {:?}", path);
-            None
-        }
+        // Read file -> Convert error to None -> Parse TOML -> Convert error to None
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| toml::from_str(&content).ok())
     }
 
     /// Scan the folder structure to list all available packages
@@ -422,7 +374,7 @@ impl RushEngine {
     }
 
     /// Remove temporary files from failed installs
-    pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
+    pub fn clean_trash(&self) -> Result<CleanResult> {
         // Read the bin directory
         // We use read_dir which returns an iterator over entries
         let bin_dir = std::fs::read_dir(&self.bin_path)?;
@@ -438,32 +390,35 @@ impl RushEngine {
                 .filter(|n| n.starts_with(".rush-tmp-"))
             {
                 std::fs::remove_file(&path)?;
-                println!("{} {:?}", "Deleted trash:".yellow(), name);
                 deleted_files.push(name.to_string());
             }
         }
 
-        Ok(crate::models::CleanResult {
+        Ok(CleanResult {
             files_cleaned: deleted_files,
         })
     }
 
     /// Developer Tool: Create/Update a local package manifest
-    pub fn add_package_manual(
+    pub fn add_package_manual<F>(
         &self,
         name: String,
         version: String,
         target_arch: String,
         url: String,
         bin_name: Option<String>,
-    ) -> Result<()> {
-        println!("{} {}", "Fetching and hashing:".cyan(), url);
-        let content = self.download_with_progress(&url)?;
+        mut on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(InstallEvent),
+    {
+        let content = self.download_url(&url, &mut on_event)?;
+
+        on_event(InstallEvent::VerifyingChecksum);
 
         let mut hasher = Sha256::new();
         hasher.update(&content);
         let sha256 = hex::encode(hasher.finalize());
-        println!("{} {}", "Calculated Hash:".green(), sha256);
 
         // Delegate to the logic we can test
         self.write_package_manifest(&name, &version, &target_arch, &url, bin_name, &sha256)
@@ -528,104 +483,71 @@ impl RushEngine {
         let toml_string = toml::to_string_pretty(&manifest)?;
         std::fs::write(&package_path, toml_string)?;
 
-        println!("{} Written to {:?}", "Success:".green(), package_path);
-        println!("Run 'rush update' to update registry cache with added package.");
-
         Ok(())
     }
 
     /// Developer Tool: Interactive Import wizard from GitHub
-    pub fn import_github_package(&self, repo: &str) -> Result<()> {
-        println!("{} metadata for {}...", "Fetching".cyan(), repo);
-
+    pub fn fetch_github_import_candidates(
+        &self,
+        repo: &str,
+    ) -> Result<(String, String, Vec<ImportCandidate>)> {
         let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-        let release: crate::models::GitHubRelease = self
+        let release: GitHubRelease = self
             .client
             .get(&api_url)
             .send()?
             .error_for_status()?
             .json()?;
 
-        println!("Found Release: {}", release.tag_name.green());
-
         let version = release.tag_name.trim_start_matches('v').to_string();
         let package_name = repo.split('/').nth(1).unwrap_or("unknown").to_string();
 
-        let targets = vec![
+        let target_defs = vec![
             ("Linux (x86_64)", "x86_64-linux"),
             ("macOS (Apple Silicon)", "aarch64-macos"),
         ];
 
-        for (desc, target_key) in targets {
+        let mut candidates = Vec::new();
+
+        for (desc, target_key) in target_defs {
             // 1. Create a scored list of assets
-            // We store (score, original_index, asset_reference)
-            let mut scored_assets: Vec<(i32, usize, &crate::models::GitHubAsset)> = release
+            let mut scored_assets: Vec<ScoredAsset> = release
                 .assets
                 .iter()
-                .enumerate()
-                .map(|(i, asset)| {
-                    (
-                        Self::calculate_asset_score(&asset.name, target_key),
-                        i,
-                        asset,
-                    )
+                .map(|asset| ScoredAsset {
+                    score: Self::calculate_asset_score(&asset.name, target_key),
+                    asset: asset.clone(),
                 })
                 .collect();
 
             // 2. Sort by score descending (Best match first)
-            scored_assets.sort_by(|a, b| b.0.cmp(&a.0));
+            scored_assets.sort_by(|a, b| b.score.cmp(&a.score));
 
-            // 3. Create display strings
-            let mut menu_items: Vec<String> = scored_assets
-                .iter()
-                .map(|(score, _, asset)| {
-                    // Visual hint for high scoring matches
-                    if *score > 0 {
-                        format!("{} (Recommended)", asset.name)
-                    } else {
-                        asset.name.clone()
-                    }
-                })
-                .collect();
-
-            menu_items.push("Skip this target".to_string());
-
-            // 4. Interactive Menu
-            let selection = Select::with_theme(&ColorfulTheme::default())
-                .with_prompt(format!("Select asset for {}", desc.bold()))
-                .default(0) // Default to the highest scored item
-                .items(&menu_items)
-                .interact()?;
-
-            if selection == menu_items.len() - 1 {
-                println!("Skipping {}", target_key);
-                continue;
-            }
-
-            // 5. Retrieve the actual asset using the original index
-            let (_, _, asset) = scored_assets[selection];
-
-            self.add_package_manual(
-                package_name.clone(),
-                version.clone(),
-                target_key.to_string(),
-                asset.browser_download_url.clone(),
-                None,
-            )?;
+            candidates.push(ImportCandidate {
+                target_desc: desc.to_string(),
+                target_slug: target_key.to_string(),
+                assets: scored_assets,
+            });
         }
-        Ok(())
+
+        Ok((package_name, version, candidates))
     }
 
-    fn download_with_progress(&self, url: &str) -> Result<Vec<u8>> {
+    // Generic helper for downloading files with progress
+    fn download_url<F>(&self, url: &str, on_event: &mut F) -> Result<Vec<u8>>
+    where
+        F: FnMut(InstallEvent),
+    {
         let mut response = self.client.get(url).send()?.error_for_status()?;
         let total_size = response.content_length().unwrap_or(0);
 
-        let pb = ProgressBar::new(total_size);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-                .progress_chars("#>-"),
-        );
+        on_event(InstallEvent::Downloading {
+            total_bytes: total_size,
+        });
+        on_event(InstallEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
 
         let mut content = Vec::with_capacity(total_size as usize);
         let mut buffer = [0; 8192];
@@ -636,9 +558,11 @@ impl RushEngine {
                 break;
             }
             content.extend_from_slice(&buffer[..bytes_read]);
-            pb.inc(bytes_read as u64);
+            on_event(InstallEvent::Progress {
+                bytes: bytes_read as u64,
+                total: total_size,
+            });
         }
-        pb.finish_with_message("Download complete");
 
         Ok(content)
     }

@@ -32,10 +32,29 @@ pub struct GitHubRelease {
     pub assets: Vec<GitHubAsset>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)] // Added Clone
 pub struct GitHubAsset {
     pub name: String,
     pub browser_download_url: String,
+}
+
+// --- DATA TRANSFER OBJECTS (Core -> UI) ---
+
+/// Represents a candidate for import found in a GitHub release
+#[derive(Debug)]
+pub struct ImportCandidate {
+    /// The specific system target (e.g. "x86_64-linux")
+    pub target_slug: String,
+    /// A human-readable description (e.g. "Linux (x86_64)")
+    pub target_desc: String,
+    /// List of assets sorted by relevance score
+    pub assets: Vec<ScoredAsset>,
+}
+
+#[derive(Debug)]
+pub struct ScoredAsset {
+    pub score: i32,
+    pub asset: GitHubAsset,
 }
 
 // --- STATE DATA ---
@@ -87,7 +106,7 @@ pub struct InstallResult {
 
 // --- REAL-TIME EVENTS ---
 
-/// Event from `RushEngine::install_package()`
+/// Event from `RushEngine::install_package()` and `add_package_manual`
 pub enum InstallEvent {
     /// The download has started
     Downloading { total_bytes: u64 },
