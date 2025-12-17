@@ -10,7 +10,6 @@ use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::fs::{self};
-use std::io::Read;
 use std::path::PathBuf;
 use tar::Archive;
 use walkdir::WalkDir;
@@ -241,28 +240,19 @@ impl RushEngine {
         }
 
         // --- Remote Tarball ---
-        let mut response = self.client.get(source).send()?.error_for_status()?;
-        let total_size = response.content_length().unwrap_or(0);
-
-        let mut content = Vec::with_capacity(total_size as usize);
-        let mut buffer = [0; 8192];
-
-        on_event(UpdateEvent::Progress {
-            bytes: 0,
-            total: total_size,
-        });
-
-        loop {
-            let bytes_read = response.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
+        // We create a "Mapper Closure" here.
+        // It takes the util function's "InstallEvent" and converts it to "UpdateEvent"
+        // This allows us to reuse the download logic despite the mismatched types.
+        let content = util::download_url(&self.client, source, &mut |event| {
+            match event {
+                // Map the progress
+                crate::models::InstallEvent::Progress { bytes, total } => {
+                    on_event(UpdateEvent::Progress { bytes, total });
+                }
+                // Ignore events that don't make sense for updating (like VerifyingChecksum)
+                _ => {}
             }
-            content.extend_from_slice(&buffer[..bytes_read]);
-            on_event(UpdateEvent::Progress {
-                bytes: bytes_read as u64,
-                total: total_size,
-            });
-        }
+        })?;
 
         on_event(UpdateEvent::Unpacking);
 
