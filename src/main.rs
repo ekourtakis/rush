@@ -227,7 +227,7 @@ fn main() -> Result<()> {
 
                 // 1. Get Candidates from Core
                 let (pkg_name, version, candidates) =
-                    engine.fetch_github_import_candidates(&repo)?;
+                    engine.fetch_github_import_candidates(repo)?;
 
                 println!("Found Release: {}", version.green());
 

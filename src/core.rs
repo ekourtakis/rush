@@ -330,19 +330,10 @@ impl RushEngine {
             .join(prefix.to_string())
             .join(format!("{}.toml", name));
 
-        if path.exists() {
-            match fs::read_to_string(&path) {
-                Ok(content) => match toml::from_str(&content) {
-                    Ok(manifest) => Some(manifest),
-                    // We consume the error here to keep the API simple (Option),
-                    // but in a larger app we might want Result<Option<..>>
-                    Err(_) => None,
-                },
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
+        // Read file -> Convert error to None -> Parse TOML -> Convert error to None
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|content| toml::from_str(&content).ok())
     }
 
     /// Scan the folder structure to list all available packages
