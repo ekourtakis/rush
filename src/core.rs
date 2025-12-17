@@ -7,8 +7,8 @@ pub mod update;
 pub mod util;
 
 use crate::models::{
-    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition,
-    UninstallResult, UpdateEvent, UpdateResult,
+    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State,
+    TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
 };
 use anyhow::{Context, Result};
 use std::fs::{self};
