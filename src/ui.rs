@@ -1,13 +1,14 @@
-use anyhow::Result;
-use dialoguer::{Select, theme::ColorfulTheme};
 use crate::models::{
-    CleanResult, ImportCandidate, InstallEvent, InstalledPackage, PackageManifest, UninstallResult, UpdateEvent
+    CleanResult, ImportCandidate, InstallEvent, InstalledPackage, PackageManifest, UninstallResult,
+    UpdateEvent,
 };
+use anyhow::Result;
 use colored::*;
+use dialoguer::{Select, theme::ColorfulTheme};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 
-// -- GENERAL UI FUNCTIONS -- 
+// -- GENERAL UI FUNCTIONS --
 
 /// Display an error message
 pub fn print_error(msg: &str) {
@@ -18,6 +19,22 @@ pub fn print_error(msg: &str) {
 pub fn print_warning(msg: &str) {
     println!("{} {}", "Warning:".yellow(), msg);
 }
+
+// -- INTERNAL HELPERS --
+
+/// Creates a progress bar
+fn make_progress_bar(total_bytes: u64) -> ProgressBar {
+    let pb = ProgressBar::new(total_bytes);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .unwrap()
+            .progress_chars("#>-"),
+    );
+    pb
+}
+
+// -- LIST FUNCTIONS --
 
 /// Display the list of installed packages given
 pub fn print_installed_packages(packages: &HashMap<String, InstalledPackage>) {
@@ -37,6 +54,8 @@ pub fn print_installed_packages(packages: &HashMap<String, InstalledPackage>) {
     }
 }
 
+// -- SEARCH FUNCTIONS --
+
 /// Display the list of available packages given
 pub fn print_available_packages(packages: &[(String, PackageManifest)], target: &str) {
     println!("{} ({}):", "Available Packages".bold(), target);
@@ -53,6 +72,8 @@ pub fn print_available_packages(packages: &[(String, PackageManifest)], target: 
         }
     }
 }
+
+// -- UNINSTALL FUNCTIONS --
 
 /// Display the result of an uninstall operation
 pub fn print_uninstall_result(result: &Option<UninstallResult>, requested_name: &str) {
@@ -71,6 +92,8 @@ pub fn print_uninstall_result(result: &Option<UninstallResult>, requested_name: 
     }
 }
 
+// -- CLEAN FUNCTIONS --
+
 /// Display the result of a cleaning operation
 pub fn print_clean_result(result: &CleanResult) {
     if result.files_cleaned.is_empty() {
@@ -87,7 +110,7 @@ pub fn print_clean_result(result: &CleanResult) {
     }
 }
 
-// --- INSTALLATION UI ---
+// --- INSTALLATION FUNCTIONS ---
 
 pub fn print_install_start(name: &str, version: &str) {
     println!("{} {} (v{})...", "Installing".cyan(), name, version);
@@ -99,20 +122,11 @@ pub fn print_install_success(path: &std::path::Path) {
 
 /// Factory: Creates a closure that handles InstallEvents and updates the progress bar
 pub fn create_install_handler() -> impl FnMut(InstallEvent) {
-    // 1. Initialize state locally
     let mut pb: Option<ProgressBar> = None;
 
-    // 2. Return a closure that moves 'pb' into itself
     move |event: InstallEvent| match event {
         InstallEvent::Downloading { total_bytes } => {
-            let b = ProgressBar::new(total_bytes);
-            b.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                    .unwrap()
-                    .progress_chars("#>-"),
-            );
-            pb = Some(b); // Mutate internal state
+            pb = Some(make_progress_bar(total_bytes));
         }
         InstallEvent::Progress { bytes, total: _ } => {
             if let Some(bar) = &pb {
@@ -126,14 +140,13 @@ pub fn create_install_handler() -> impl FnMut(InstallEvent) {
             println!("{}", "Verifying checksum...".cyan());
         }
         InstallEvent::Success => {
-            // Checksum verified
-             println!("{}", "Checksum Verified.".green());
+            println!("{}", "Checksum Verified.".green());
         }
         _ => {}
     }
 }
 
-// --- UPDATE UI ---
+// --- UPDATE FUNCTIONS ---
 
 /// Display the successful result of an update operation
 pub fn print_update_success(source: &str) {
@@ -149,18 +162,7 @@ pub fn create_update_handler() -> impl FnMut(UpdateEvent) {
             println!("{} from {}...", "Fetching registry".cyan(), source);
         }
         UpdateEvent::Progress { bytes, total } => {
-            let bar = pb.get_or_insert_with(|| {
-                let b = ProgressBar::new(total);
-                b.set_style(
-                    ProgressStyle::default_bar()
-                        .template(
-                            "{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-                        )
-                        .unwrap()
-                        .progress_chars("#>-"),
-                );
-                b
-            });
+            let bar = pb.get_or_insert_with(|| make_progress_bar(total));
             bar.inc(bytes);
         }
         UpdateEvent::Unpacking => {
