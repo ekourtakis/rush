@@ -169,7 +169,7 @@ export RUSH_REGISTRY_URL="$(pwd)"
 rush dev import sharkdp/bat
 
 # 3. Or use the Manual Command
-rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
+rush dev add bat 0.26.1 x86_64-linux https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz --bin bat
 ```
 
 ### Testing
