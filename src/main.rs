@@ -10,7 +10,7 @@ use anyhow::Result;
 use clap::Parser;
 use colored::*;
 use dialoguer::{Select, theme::ColorfulTheme};
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar};
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
@@ -42,35 +42,22 @@ fn main() -> Result<()> {
 
             if let Some(manifest) = engine.find_package(name) {
                 if let Some(target) = manifest.targets.get(&current_target) {
-                    println!(
-                        "{} {} (v{})...",
-                        "Installing".cyan(),
-                        name,
-                        manifest.version
-                    );
+                    rush::ui::print_install_start(name, &manifest.version);
 
                     // UI SETUP
                     let mut pb: Option<ProgressBar> = None;
-                    let event_handler = create_install_progress_handler(&mut pb);
+                    let event_handler = rush::ui::create_install_handler(&mut pb);
 
                     // CALL ENGINE
                     match engine.install_package(name, &manifest.version, target, event_handler) {
-                        Ok(result) => {
-                            println!("{} Installed to {:?}", "Success:".green(), result.path);
-                        }
-                        Err(e) => {
-                            println!("{} {}", "Error:".red(), e);
-                        }
+                        Ok(result) => rush::ui::print_install_success(&result.path),
+                        Err(e) => rush::ui::print_error(&e.to_string()),
                     }
                 } else {
-                    println!(
-                        "{} No compatible binary for {}",
-                        "Error:".red(),
-                        current_target
-                    );
+                    rush::ui::print_error(&format!("No compatible binary for {}", current_target));
                 }
             } else {
-                println!("{} Package '{}' not found.", "Error:".red(), name);
+                rush::ui::print_error(&format!("Package '{}' not found.", name));
             }
         }
 
@@ -87,10 +74,10 @@ fn main() -> Result<()> {
             for name in installed_names {
                 let current_ver = engine.state.packages.get(&name).unwrap().version.clone();
 
+                // Logic to find update
                 let Some(manifest) = engine.find_package(&name) else {
                     continue;
                 };
-
                 let Some(target) = manifest.targets.get(&current_target) else {
                     continue;
                 };
@@ -107,59 +94,25 @@ fn main() -> Result<()> {
                     manifest.version
                 );
 
-                // --- Event Handler for Upgrade ---
+                // UI SETUP
                 let mut pb: Option<ProgressBar> = None;
-                let event_handler = create_install_progress_handler(&mut pb);
+                let event_handler = rush::ui::create_install_handler(&mut pb);
 
-                // Pass the handler
                 engine.install_package(&name, &manifest.version, target, event_handler)?;
                 count += 1;
             }
-
             println!("{} {} packages upgraded.", "Success:".green(), count);
         }
 
         Commands::Update => {
-            // 1. Prepare UI elements (the progress bar)
+            // UI SETUP
             let mut pb: Option<ProgressBar> = None;
+            let event_handler = rush::ui::create_update_handler(&mut pb);
 
-            // 2. Define the callback function
-            let event_handler = |event: rush::models::UpdateEvent| {
-                match event {
-                    rush::models::UpdateEvent::Fetching { source } => {
-                        println!("{} from {}...", "Fetching registry".cyan(), source);
-                    }
-                    rush::models::UpdateEvent::Progress { bytes, total } => {
-                        // Create the progress bar on the first progress event
-                        let bar = pb.get_or_insert_with(|| {
-                            let b = ProgressBar::new(total);
-                            b.set_style(
-                                ProgressStyle::default_bar()
-                                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                                    .unwrap()
-                                    .progress_chars("#>-"),
-                            );
-                            b
-                        });
-                        bar.inc(bytes);
-                    }
-                    rush::models::UpdateEvent::Unpacking => {
-                        if let Some(bar) = pb.take() {
-                            bar.finish_with_message("Download complete");
-                        }
-                    }
-                }
-            };
-
-            // 3. Call the silent core logic, passing the UI handler
+            // CALL ENGINE
             let result = engine.update_registry(event_handler)?;
 
-            // 4. Print the final success message
-            println!(
-                "{} Registry updated from {}.",
-                "Success:".green(),
-                result.source
-            );
+            rush::ui::print_update_success(&result.source);
         }
 
         Commands::Clean => {
@@ -178,7 +131,7 @@ fn main() -> Result<()> {
                 println!("{} {}", "Fetching and hashing:".cyan(), url);
 
                 let mut pb: Option<ProgressBar> = None;
-                let event_handler = create_install_progress_handler(&mut pb);
+                let event_handler = rush::ui::create_install_handler(&mut pb);
 
                 engine.add_package_manual(
                     name.clone(),
@@ -235,12 +188,12 @@ fn main() -> Result<()> {
                     println!("{} {}", "Fetching and hashing:".cyan(), url);
 
                     let mut pb: Option<ProgressBar> = None;
-                    let event_handler = create_install_progress_handler(&mut pb);
+                    let event_handler = rush::ui::create_install_handler(&mut pb);
 
                     engine.add_package_manual(
                         pkg_name.clone(),
                         version.clone(),
-                        candidate.target_slug,
+                        candidate.target_slug.clone(),
                         url,
                         None,
                         event_handler,
@@ -252,37 +205,4 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-/// Helper to create a closure for install progress events
-fn create_install_progress_handler<'a>(
-    pb: &'a mut Option<ProgressBar>,
-) -> impl FnMut(rush::models::InstallEvent) + 'a {
-    move |event: rush::models::InstallEvent| match event {
-        rush::models::InstallEvent::Downloading { total_bytes } => {
-            let b = ProgressBar::new(total_bytes);
-            b.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                    .unwrap()
-                    .progress_chars("#>-"),
-            );
-            *pb = Some(b);
-        }
-        rush::models::InstallEvent::Progress { bytes, total: _ } => {
-            if let Some(bar) = pb {
-                bar.inc(bytes);
-            }
-        }
-        rush::models::InstallEvent::VerifyingChecksum => {
-            if let Some(bar) = pb {
-                bar.finish_and_clear();
-            }
-            println!("{}", "Verifying checksum...".cyan());
-        }
-        rush::models::InstallEvent::Success => {
-            println!("{}", "Checksum Verified.".green());
-        }
-        _ => {}
-    }
 }
