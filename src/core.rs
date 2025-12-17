@@ -1,15 +1,15 @@
 pub mod clean;
+pub mod dev;
 pub mod install;
 pub mod uninstall;
 pub mod update;
 pub mod util;
 
 use crate::models::{
-    GitHubRelease, ImportCandidate, InstallEvent, InstallResult, PackageManifest, ScoredAsset,
-    State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
+    ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition,
+    UninstallResult, UpdateEvent, UpdateResult,
 };
 use anyhow::{Context, Result};
-use sha2::{Digest, Sha256};
 use std::fs::{self};
 use std::path::PathBuf;
 use walkdir::WalkDir;
@@ -177,83 +177,12 @@ impl RushEngine {
         target_arch: String,
         url: String,
         bin_name: Option<String>,
-        mut on_event: F,
+        on_event: F,
     ) -> Result<()>
     where
         F: FnMut(InstallEvent),
     {
-        let content = util::download_url(&self.client, &url, &mut on_event)?;
-
-        on_event(InstallEvent::VerifyingChecksum);
-
-        let mut hasher = Sha256::new();
-        hasher.update(&content);
-        let sha256 = hex::encode(hasher.finalize());
-
-        // Delegate to the logic we can test
-        self.write_package_manifest(&name, &version, &target_arch, &url, bin_name, &sha256)
-    }
-
-    /// Internal helper: Updates the registry file. Separated for testing.
-    /// This function uses self.registry_source to determine where to write.
-    pub fn write_package_manifest(
-        &self,
-        name: &str,
-        version: &str,
-        target_arch: &str,
-        url: &str,
-        bin_name: Option<String>,
-        sha256: &str,
-    ) -> Result<()> {
-        // 1. Dependecny injection
-        let source_path = PathBuf::from(&self.registry_source);
-
-        if self.registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
-            anyhow::bail!(
-                "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'. Try 'export RUSH_REGISTRY_URL=\"$(pwd)\"'"
-            );
-        }
-
-        // 2. Determine file path: e.g., packages/f/fzf.toml
-        let prefix = name.chars().next().context("Package name empty")?;
-        let package_dir = source_path.join("packages").join(prefix.to_string());
-        let package_path = package_dir.join(format!("{}.toml", name));
-
-        // 3. Load existing or create new manifest
-        let mut manifest = if package_path.exists() {
-            let content = std::fs::read_to_string(&package_path)?;
-            toml::from_str::<PackageManifest>(&content).unwrap_or_else(|_| PackageManifest {
-                version: version.to_string(),
-                description: None,
-                targets: std::collections::BTreeMap::new(),
-            })
-        } else {
-            if !package_dir.exists() {
-                std::fs::create_dir_all(&package_dir)?;
-            }
-            PackageManifest {
-                version: version.to_string(),
-                description: None,
-                targets: std::collections::BTreeMap::new(),
-            }
-        };
-
-        // 4. Update Struct
-        manifest.version = version.to_string();
-        manifest.targets.insert(
-            target_arch.to_string(),
-            TargetDefinition {
-                url: url.to_string(),
-                bin: bin_name.unwrap_or(name.to_string()),
-                sha256: sha256.to_string(),
-            },
-        );
-
-        // 5. Write back
-        let toml_string = toml::to_string_pretty(&manifest)?;
-        std::fs::write(&package_path, toml_string)?;
-
-        Ok(())
+        dev::add_package_manual(self, name, version, target_arch, url, bin_name, on_event)
     }
 
     /// Developer Tool: Interactive Import wizard from GitHub
@@ -261,121 +190,7 @@ impl RushEngine {
         &self,
         repo: &str,
     ) -> Result<(String, String, Vec<ImportCandidate>)> {
-        let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
-        let release: GitHubRelease = self
-            .client
-            .get(&api_url)
-            .send()?
-            .error_for_status()?
-            .json()?;
-
-        let version = release.tag_name.trim_start_matches('v').to_string();
-        let package_name = repo.split('/').nth(1).unwrap_or("unknown").to_string();
-
-        let target_defs = vec![
-            ("Linux (x86_64)", "x86_64-linux"),
-            ("macOS (Apple Silicon)", "aarch64-macos"),
-        ];
-
-        let mut candidates = Vec::new();
-
-        for (desc, target_key) in target_defs {
-            // 1. Create a scored list of assets
-            let mut scored_assets: Vec<ScoredAsset> = release
-                .assets
-                .iter()
-                .map(|asset| ScoredAsset {
-                    score: Self::calculate_asset_score(&asset.name, target_key),
-                    asset: asset.clone(),
-                })
-                .collect();
-
-            // 2. Sort by score descending (Best match first)
-            scored_assets.sort_by(|a, b| b.score.cmp(&a.score));
-
-            candidates.push(ImportCandidate {
-                target_desc: desc.to_string(),
-                target_slug: target_key.to_string(),
-                assets: scored_assets,
-            });
-        }
-
-        Ok((package_name, version, candidates))
-    }
-
-    /// Helper to rank assets based on how well they match the target architecture
-    fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
-        let name = name.to_lowercase();
-        let mut score = 0;
-
-        // --- GLOBAL PREFERENCES ---
-        // We prefer tarballs because we have built-in extraction
-        if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
-            score += 20;
-        }
-        // We dislike zips (for now) as we might not handle them perfectly on all OSes yet
-        if name.ends_with(".zip") {
-            score -= 10;
-        }
-        // We cannot handle system packages
-        if name.ends_with(".deb") || name.ends_with(".rpm") || name.ends_with(".msi") {
-            score -= 100;
-        }
-        // We don't want metadata files
-        if name.contains("sha256") || name.contains("sum") || name.contains("sig") {
-            score -= 100;
-        }
-
-        match target_arch {
-            "x86_64-linux" => {
-                // Good keywords
-                if name.contains("linux") {
-                    score += 10;
-                }
-                if name.contains("x86_64") || name.contains("amd64") {
-                    score += 10;
-                }
-                if name.contains("musl") {
-                    score += 5;
-                } // Prefer static linking
-                if name.contains("gnu") {
-                    score += 3;
-                }
-
-                // Bad keywords (Wrong Arch/OS)
-                if name.contains("aarch64") || name.contains("arm") {
-                    score -= 50;
-                }
-                if name.contains("darwin") || name.contains("apple") || name.contains("macos") {
-                    score -= 50;
-                }
-                if name.contains("windows") || name.contains(".exe") {
-                    score -= 50;
-                }
-            }
-            "aarch64-macos" => {
-                // Good keywords
-                if name.contains("apple") || name.contains("darwin") || name.contains("macos") {
-                    score += 10;
-                }
-                if name.contains("aarch64") || name.contains("arm64") {
-                    score += 10;
-                }
-
-                // Bad keywords
-                if name.contains("linux") {
-                    score -= 50;
-                }
-                if name.contains("x86_64") || name.contains("amd64") {
-                    score -= 50;
-                }
-                if name.contains("windows") || name.contains(".exe") {
-                    score -= 50;
-                }
-            }
-            _ => {}
-        }
-        score
+        dev::fetch_github_import_candidates(self, repo)
     }
 }
 

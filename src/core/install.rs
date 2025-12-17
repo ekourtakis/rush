@@ -199,7 +199,7 @@ mod tests {
 
         for entry in archive.entries().unwrap() {
             let mut entry = entry.unwrap();
-            
+
             if try_extract_binary(&mut entry, &engine.bin_path, "target_file")
                 .unwrap()
                 .is_some()

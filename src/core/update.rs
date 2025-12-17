@@ -130,28 +130,4 @@ mod tests {
         let found = engine.find_package("test-tool");
         assert!(found.is_some());
     }
-
-    #[test]
-    fn test_write_package_manifest() {
-        let temp_dir = tempdir().unwrap();
-        let root = temp_dir.path().to_path_buf();
-
-        let engine =
-            RushEngine::with_root_and_registry(root.clone(), root.to_str().unwrap().to_string())
-                .unwrap();
-
-        engine
-            .write_package_manifest(
-                "test-tool",
-                "1.0.0",
-                "x86_64-linux",
-                "http://example.com",
-                Some("binary-name".to_string()),
-                "fake-hash-123",
-            )
-            .unwrap();
-
-        let expected_path = root.join("packages").join("t").join("test-tool.toml");
-        assert!(expected_path.exists());
-    }
 }
