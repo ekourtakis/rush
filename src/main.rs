@@ -1,3 +1,11 @@
+//! # The "Orchestrator"
+//!
+//! This file acts as the bridge between the CLI arguments, the Core logic, and the UI.
+//!
+//! - **Core (`rush::core`):** Handles state, file I/O, network requests. Returns raw data.
+//! - **UI (`rush::ui`):** Handles formatting, colors, progress bars, and user interaction.
+//! - **Main:** connects the two. It fetches data from Core and passes it to UI.
+
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
@@ -18,14 +26,7 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::List => {
-            println!("{}", "Installed Packages:".bold());
-            if engine.state.packages.is_empty() {
-                println!("   (No packages installed)");
-            } else {
-                for (name, pkg) in &engine.state.packages {
-                    println!(" - {} (v{})", name.bold(), pkg.version);
-                }
-            }
+            rush::ui::print_installed_packages(&engine.state.packages);
         }
 
         Commands::Search => {
