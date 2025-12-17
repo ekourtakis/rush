@@ -1,4 +1,5 @@
 pub mod clean;
+pub mod uninstall;
 
 use crate::models::{
     GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage, PackageManifest,
@@ -201,27 +202,7 @@ impl RushEngine {
     }
 
     pub fn uninstall_package(&mut self, name: &str) -> Result<Option<UninstallResult>> {
-        let Some(pkg) = self.state.packages.get(name) else {
-            return Ok(None); // Package not installed
-        };
-
-        let mut removed_bins = Vec::new();
-
-        for binary in &pkg.binaries {
-            let p = self.bin_path.join(binary);
-            if p.exists() {
-                fs::remove_file(&p)?;
-                removed_bins.push(binary.clone());
-            }
-        }
-
-        self.state.packages.remove(name);
-        self.save()?;
-
-        Ok(Some(UninstallResult {
-            package_name: name.to_string(),
-            binaries_removed: removed_bins,
-        }))
+        uninstall::uninstall_package(self, name)
     }
 
     /// Download the registry from the internet OR copy it from a local directory
