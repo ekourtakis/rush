@@ -1,10 +1,10 @@
-pub mod clean;
-pub mod dev;
-pub mod install;
-pub mod query;
-pub mod uninstall;
-pub mod update;
-pub mod util;
+mod clean;
+mod dev;
+mod install;
+mod query;
+mod uninstall;
+mod update;
+mod util;
 
 use crate::models::{
     CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State,
