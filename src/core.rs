@@ -7,7 +7,7 @@ pub mod update;
 pub mod util;
 
 use crate::models::{
-    ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition,
+    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition,
     UninstallResult, UpdateEvent, UpdateResult,
 };
 use anyhow::{Context, Result};
@@ -124,7 +124,7 @@ impl RushEngine {
     }
 
     /// Clean up old temorary files from atomic installs
-    pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
+    pub fn clean_trash(&self) -> Result<CleanResult> {
         clean::clean_trash(self)
     }
 
@@ -157,6 +157,7 @@ impl RushEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::InstalledPackage;
     use tempfile::tempdir;
 
     #[test]
@@ -165,5 +166,26 @@ mod tests {
         let root = temp_dir.path().to_path_buf();
         let _engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(root.join(".local/share/rush").exists());
+    }
+
+    #[test]
+    fn test_state_persistence() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        {
+            let mut engine = RushEngine::with_root(root.clone()).unwrap();
+            engine.state.packages.insert(
+                "fake-pkg".to_string(),
+                InstalledPackage {
+                    version: "1.0.0".to_string(),
+                    binaries: vec!["fake-bin".to_string()],
+                },
+            );
+            engine.save().unwrap();
+        }
+
+        let engine = RushEngine::with_root(root.clone()).unwrap();
+        assert!(engine.state.packages.contains_key("fake-pkg"));
     }
 }
