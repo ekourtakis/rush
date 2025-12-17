@@ -30,19 +30,8 @@ fn main() -> Result<()> {
         }
 
         Commands::Search => {
-            println!("{} ({}):", "Available Packages".bold(), current_target);
-
             let packages = engine.list_available_packages();
-
-            if packages.is_empty() {
-                println!("   (Registry empty or not found. Run 'rush update')");
-            }
-
-            for (name, manifest) in packages {
-                if manifest.targets.contains_key(&current_target) {
-                    println!(" - {} (v{})", name.bold(), manifest.version);
-                }
-            }
+            rush::ui::print_available_packages(&packages, &current_target);
         }
 
         Commands::Install { name } => {
