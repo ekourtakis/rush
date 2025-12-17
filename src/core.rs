@@ -1,5 +1,6 @@
 pub mod clean;
 pub mod uninstall;
+pub mod util;
 
 use crate::models::{
     GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage, PackageManifest,
@@ -98,11 +99,11 @@ impl RushEngine {
         F: FnMut(InstallEvent),
     {
         // 1. Download
-        let content = self.download_url(&target.url, &mut on_event)?;
+        let content = util::download_url(&self.client, &target.url, &mut on_event)?;
 
         // 2. Verify Checksum
         on_event(InstallEvent::VerifyingChecksum);
-        Self::verify_checksum(&content, &target.sha256)?;
+        util::verify_checksum(&content, &target.sha256)?;
 
         // 3. Extract
         on_event(InstallEvent::Extracting);
@@ -183,22 +184,6 @@ impl RushEngine {
         temp_file.persist(&dest)?;
 
         Ok(Some(dest))
-    }
-
-    /// Verify checksum of given content against expected hash
-    fn verify_checksum(content: &[u8], expected_hash: &str) -> Result<()> {
-        let mut hasher = Sha256::new();
-        hasher.update(content);
-        let hash = hex::encode(hasher.finalize());
-
-        if hash != expected_hash {
-            anyhow::bail!(
-                "Security check failed: Checksum mismatch. Expected: {}, Got: {}",
-                expected_hash,
-                hash
-            );
-        }
-        Ok(())
     }
 
     pub fn uninstall_package(&mut self, name: &str) -> Result<Option<UninstallResult>> {
@@ -372,7 +357,7 @@ impl RushEngine {
     where
         F: FnMut(InstallEvent),
     {
-        let content = self.download_url(&url, &mut on_event)?;
+        let content = util::download_url(&self.client, &url, &mut on_event)?;
 
         on_event(InstallEvent::VerifyingChecksum);
 
@@ -491,40 +476,6 @@ impl RushEngine {
         }
 
         Ok((package_name, version, candidates))
-    }
-
-    // Generic helper for downloading files with progress
-    fn download_url<F>(&self, url: &str, on_event: &mut F) -> Result<Vec<u8>>
-    where
-        F: FnMut(InstallEvent),
-    {
-        let mut response = self.client.get(url).send()?.error_for_status()?;
-        let total_size = response.content_length().unwrap_or(0);
-
-        on_event(InstallEvent::Downloading {
-            total_bytes: total_size,
-        });
-        on_event(InstallEvent::Progress {
-            bytes: 0,
-            total: total_size,
-        });
-
-        let mut content = Vec::with_capacity(total_size as usize);
-        let mut buffer = [0; 8192];
-
-        loop {
-            let bytes_read = response.read(&mut buffer)?;
-            if bytes_read == 0 {
-                break;
-            }
-            content.extend_from_slice(&buffer[..bytes_read]);
-            on_event(InstallEvent::Progress {
-                bytes: bytes_read as u64,
-                total: total_size,
-            });
-        }
-
-        Ok(content)
     }
 
     /// Helper to rank assets based on how well they match the target architecture

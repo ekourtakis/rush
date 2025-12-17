@@ -13,15 +13,6 @@ fn test_engine_initialization() {
 // -- install_package() tests --
 
 #[test]
-fn test_verify_checksum_logic() {
-    let data = b"hello world";
-    let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
-    let wrong_hash = "literally-anything-else";
-    assert!(RushEngine::verify_checksum(data, correct_hash).is_ok());
-    assert!(RushEngine::verify_checksum(data, wrong_hash).is_err());
-}
-
-#[test]
 fn test_try_extract_binary_success() {
     let temp_dir = tempdir().unwrap();
     let root = temp_dir.path().to_path_buf();
