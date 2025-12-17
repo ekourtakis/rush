@@ -1,18 +1,17 @@
 pub mod clean;
+pub mod install;
 pub mod uninstall;
 pub mod update;
 pub mod util;
 
 use crate::models::{
-    GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage, PackageManifest,
-    ScoredAsset, State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
+    GitHubRelease, ImportCandidate, InstallEvent, InstallResult, PackageManifest, ScoredAsset,
+    State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
 };
 use anyhow::{Context, Result};
-use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::fs::{self};
 use std::path::PathBuf;
-use tar::Archive;
 use walkdir::WalkDir;
 
 /// Default URL to fetch the registry from, overridable by env variable
@@ -81,7 +80,7 @@ impl RushEngine {
     }
 
     /// Save state to disk
-    fn save(&self) -> Result<()> {
+    pub(crate) fn save(&self) -> Result<()> {
         let content = serde_json::to_string_pretty(&self.state)?;
         fs::write(&self.state_path, content)?;
         Ok(())
@@ -93,97 +92,12 @@ impl RushEngine {
         name: &str,
         version: &str,
         target: &TargetDefinition,
-        mut on_event: F,
+        on_event: F,
     ) -> Result<InstallResult>
     where
         F: FnMut(InstallEvent),
     {
-        // 1. Download
-        let content = util::download_url(&self.client, &target.url, &mut on_event)?;
-
-        // 2. Verify Checksum
-        on_event(InstallEvent::VerifyingChecksum);
-        util::verify_checksum(&content, &target.sha256)?;
-
-        // 3. Extract
-        on_event(InstallEvent::Extracting);
-        let tar = GzDecoder::new(&content[..]);
-        let mut archive = Archive::new(tar);
-        let mut found = false;
-        let mut final_path = PathBuf::new();
-
-        for entry in archive.entries()? {
-            let mut entry = entry?;
-            // Modify try_extract_binary to return the path if successful
-            if let Some(dest) = self.try_extract_binary(&mut entry, &target.bin)? {
-                final_path = dest;
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            anyhow::bail!("Binary '{}' not found in archive", target.bin);
-        }
-
-        // 4. Update State
-        self.state.packages.insert(
-            name.to_string(),
-            InstalledPackage {
-                version: version.to_string(),
-                binaries: vec![target.bin.clone()],
-            },
-        );
-        self.save()?;
-
-        on_event(InstallEvent::Success);
-
-        Ok(InstallResult {
-            package_name: name.to_string(),
-            version: version.to_string(),
-            path: final_path,
-        })
-    }
-
-    // Helper: Returns Some(path) if successful, None if skipped
-    fn try_extract_binary<R: std::io::Read>(
-        &self,
-        entry: &mut tar::Entry<R>,
-        target_bin_name: &str,
-    ) -> Result<Option<PathBuf>> {
-        let path = entry.path()?;
-
-        // Guard Clause 1: Check if filename exists
-        let fname = match path.file_name() {
-            Some(f) => f,
-            None => return Ok(None),
-        };
-
-        // Guard Clause 2: Check if filename matches target
-        if fname != std::ffi::OsStr::new(target_bin_name) {
-            return Ok(None);
-        }
-
-        // --- ATOMIC INSTALL LOGIC ---
-        let dest = self.bin_path.join(target_bin_name);
-
-        let mut temp_file = tempfile::Builder::new()
-            .prefix(".rush-tmp-")
-            .tempfile_in(&self.bin_path)?;
-
-        std::io::copy(entry, &mut temp_file)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut p = temp_file.as_file().metadata()?.permissions();
-            p.set_mode(0o755);
-            temp_file.as_file().set_permissions(p)?;
-        }
-
-        temp_file.persist(&dest)?;
-
-        Ok(Some(dest))
+        install::install_package(self, name, version, target, on_event)
     }
 
     pub fn uninstall_package(&mut self, name: &str) -> Result<Option<UninstallResult>> {
