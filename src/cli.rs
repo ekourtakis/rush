@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use clap_complete::Shell;
 
 // --- CLI ---
 #[derive(Parser, Debug)] // Added Debug
@@ -32,6 +33,11 @@ pub enum Commands {
     Dev {
         #[command(subcommand)]
         command: DevCommands,
+    },
+
+    Completions {
+        #[arg(value_enum)]
+        shell: Shell,
     },
 }
 

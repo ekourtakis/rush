@@ -10,13 +10,22 @@ I work only on x86 Linux, and cannot confirm rush works on any other platform.
 
 ## Installation
 
-Use the installer script: 
+Use the installer script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh
 ```
 
-### Build and Install
+The installer will verify your architecture and ask if you want to install shell completions automatically.
+
+**Automated Installation:**
+If you want to skip the prompt and force completion installation, pass the `--autocomplete` flag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh -s -- --autocomplete
+```
+
+### Build From Source and Install
 
 You must have Rust installed to build. **[Get Rust here](https://rustup.rs/)**.
 
@@ -56,6 +65,7 @@ Once installed, you can use the `rush` command.
 | **`rush uninstall <name>`** | Remove a package and delete its binary |
 | **`rush update`** | Reload the registry |
 | **`rush clean`** | Remove temporary files from failed installs |
+| **`rush completions <shell>`** | Generate shell completion scripts (bash, zsh, fish) |
 | **`rush --help`** | Show help message |
 
 If you haven't built the binary, you can use cargo run with all commands, e.g.: `cargo run -- install <name>`.
@@ -82,6 +92,43 @@ rush upgrade
 
 # Remove it
 rush uninstall ripgrep
+```
+
+### Manual Autocompletion Setup
+
+If you installed via `cargo` or skipped the auto-installer, you can set up completions manually.
+
+**Bash:**
+
+Add this to your `.bashrc`:
+
+```bash
+source <(rush completions bash)
+```
+
+**Zsh:**
+
+1. Create a folder for completions:
+
+    ```bash
+    mkdir -p ~/.zfunc
+    rush completions zsh > ~/.zfunc/_rush
+    ```
+
+2. Add this to your `.zshrc` (before `compinit`):
+
+    ```bash
+    fpath+=~/.zfunc
+    autoload -Uz compinit && compinit
+    ```
+
+**Fish:**
+
+Save the completion file to your config directory:
+
+```bash
+mkdir -p ~/.config/fish/completions
+rush completions fish > ~/.config/fish/completions/rush.fish
 ```
 
 ### Configuration
@@ -125,21 +172,6 @@ rush dev import sharkdp/bat
 rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
 ```
 
-### Pre-PR Check
-
-Before opening a Pull Request, run the local CI script to ensure formatting, linting, and tests all pass:
-
-```bash
-./scripts/pre-pr.sh
-```
-
-If you use the GitHub CLI (`gh`), you can create an alias to run checks automatically before submitting:
-
-```bash
-gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
-# Usage: gh submit --web
-```
-
 ### Testing
 
 Unit tests are either located at the end of source files. Integration tests are in `tests/`.
@@ -164,4 +196,19 @@ Use:
 
 ```sh
 cargo fmt --check
+```
+
+### Pre-PR Check
+
+Before opening a Pull Request, run the local CI script to ensure formatting, linting, and tests all pass:
+
+```bash
+./scripts/pre-pr.sh
+```
+
+If you use the GitHub CLI (`gh`), you can create an alias to run checks automatically before submitting:
+
+```bash
+gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
+# Usage: gh submit --web
 ```
