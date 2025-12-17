@@ -16,44 +16,16 @@ Use the installer script:
 curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh
 ```
 
-### Autocompletions
+The installer will verify your architecture and ask if you want to install shell completions automatically.
 
-Rush can generate completion scripts for your shell.
-
-**Bash:**
-
-Add this to your `.bashrc`:
+**Automated Installation:**
+If you want to skip the prompt and force completion installation, pass the `--autocomplete` flag:
 
 ```bash
-source <(rush completions bash)
+curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh -s -- --autocomplete
 ```
 
-**Zsh:**
-
-1. Create a folder for completions:
-
-    ```bash
-    mkdir -p ~/.zfunc
-    rush completions zsh > ~/.zfunc/_rush
-    ```
-
-2. Add this to your `.zshrc` (before `compinit`):
-
-    ```bash
-    fpath+=~/.zfunc
-    autoload -Uz compinit && compinit
-    ```
-
-**Fish:**
-
-Save the completion file to your config directory:
-
-```bash
-mkdir -p ~/.config/fish/completions
-rush completions fish > ~/.config/fish/completions/rush.fish
-```
-
-### Build and Install
+### Build From Source and Install
 
 You must have Rust installed to build. **[Get Rust here](https://rustup.rs/)**.
 
@@ -93,6 +65,7 @@ Once installed, you can use the `rush` command.
 | **`rush uninstall <name>`** | Remove a package and delete its binary |
 | **`rush update`** | Reload the registry |
 | **`rush clean`** | Remove temporary files from failed installs |
+| **`rush completions <shell>`** | Generate shell completion scripts (bash, zsh, fish) |
 | **`rush --help`** | Show help message |
 
 If you haven't built the binary, you can use cargo run with all commands, e.g.: `cargo run -- install <name>`.
@@ -119,6 +92,43 @@ rush upgrade
 
 # Remove it
 rush uninstall ripgrep
+```
+
+### Manual Autocompletion Setup
+
+If you installed via `cargo` or skipped the auto-installer, you can set up completions manually.
+
+**Bash:**
+
+Add this to your `.bashrc`:
+
+```bash
+source <(rush completions bash)
+```
+
+**Zsh:**
+
+1. Create a folder for completions:
+
+    ```bash
+    mkdir -p ~/.zfunc
+    rush completions zsh > ~/.zfunc/_rush
+    ```
+
+2. Add this to your `.zshrc` (before `compinit`):
+
+    ```bash
+    fpath+=~/.zfunc
+    autoload -Uz compinit && compinit
+    ```
+
+**Fish:**
+
+Save the completion file to your config directory:
+
+```bash
+mkdir -p ~/.config/fish/completions
+rush completions fish > ~/.config/fish/completions/rush.fish
 ```
 
 ### Configuration
