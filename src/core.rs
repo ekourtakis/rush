@@ -1,7 +1,8 @@
+pub mod clean;
+
 use crate::models::{
-    CleanResult, GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage,
-    PackageManifest, ScoredAsset, State, TargetDefinition, UninstallResult, UpdateEvent,
-    UpdateResult,
+    GitHubRelease, ImportCandidate, InstallEvent, InstallResult, InstalledPackage, PackageManifest,
+    ScoredAsset, State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
 };
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
@@ -373,30 +374,8 @@ impl RushEngine {
         results
     }
 
-    /// Remove temporary files from failed installs
-    pub fn clean_trash(&self) -> Result<CleanResult> {
-        // Read the bin directory
-        // We use read_dir which returns an iterator over entries
-        let bin_dir = std::fs::read_dir(&self.bin_path)?;
-        let mut deleted_files = Vec::new();
-
-        for entry in bin_dir {
-            let entry = entry?;
-            let path = entry.path();
-
-            if let Some(name) = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .filter(|n| n.starts_with(".rush-tmp-"))
-            {
-                std::fs::remove_file(&path)?;
-                deleted_files.push(name.to_string());
-            }
-        }
-
-        Ok(CleanResult {
-            files_cleaned: deleted_files,
-        })
+    pub fn clean_trash(&self) -> Result<crate::models::CleanResult> {
+        clean::clean_trash(self)
     }
 
     /// Developer Tool: Create/Update a local package manifest
