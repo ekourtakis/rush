@@ -10,10 +10,11 @@ use anyhow::Result;
 use clap::Parser;
 use colored::*;
 use dialoguer::{Select, theme::ColorfulTheme};
-use indicatif::{ProgressBar};
+use indicatif::ProgressBar;
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
+use rush::ui;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -26,48 +27,49 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::List => {
-            rush::ui::print_installed_packages(&engine.state.packages);
+            ui::print_installed_packages(&engine.state.packages);
         }
 
         Commands::Search => {
             let packages = engine.list_available_packages();
-            rush::ui::print_available_packages(&packages, &current_target);
+            ui::print_available_packages(&packages, &current_target);
         }
 
         Commands::Install { name } => {
             if engine.state.packages.contains_key(name) {
-                println!("{} {} is already installed", "Warning:".yellow(), name);
+                ui::print_warning(&format!("{} is already installed", name));
                 return Ok(());
             }
 
             if let Some(manifest) = engine.find_package(name) {
                 if let Some(target) = manifest.targets.get(&current_target) {
-                    rush::ui::print_install_start(name, &manifest.version);
+                    ui::print_install_start(name, &manifest.version);
 
                     // UI SETUP
                     let mut pb: Option<ProgressBar> = None;
-                    let event_handler = rush::ui::create_install_handler(&mut pb);
+                    let event_handler = ui::create_install_handler(&mut pb);
 
                     // CALL ENGINE
                     match engine.install_package(name, &manifest.version, target, event_handler) {
-                        Ok(result) => rush::ui::print_install_success(&result.path),
+                        Ok(result) => ui::print_install_success(&result.path),
                         Err(e) => rush::ui::print_error(&e.to_string()),
                     }
                 } else {
-                    rush::ui::print_error(&format!("No compatible binary for {}", current_target));
+                    ui::print_error(&format!("No compatible binary for {}", current_target));
                 }
             } else {
-                rush::ui::print_error(&format!("Package '{}' not found.", name));
+                ui::print_error(&format!("Package '{}' not found.", name));
             }
         }
 
         Commands::Uninstall { name } => {
             let result = engine.uninstall_package(name)?;
-            rush::ui::print_uninstall_result(&result, name);
+            ui::print_uninstall_result(&result, name);
         }
 
         Commands::Upgrade => {
-            println!("{}", "Checking for upgrades...".cyan());
+            ui::print_upgrade_check();
+
             let installed_names: Vec<String> = engine.state.packages.keys().cloned().collect();
             let mut count = 0;
 
@@ -86,13 +88,7 @@ fn main() -> Result<()> {
                     continue;
                 }
 
-                println!(
-                    "{} {} (v{} -> v{})...",
-                    "Upgrading".cyan(),
-                    name,
-                    current_ver,
-                    manifest.version
-                );
+                ui::print_upgrade_start(&name, &current_ver, &manifest.version);
 
                 // UI SETUP
                 let mut pb: Option<ProgressBar> = None;
@@ -101,7 +97,7 @@ fn main() -> Result<()> {
                 engine.install_package(&name, &manifest.version, target, event_handler)?;
                 count += 1;
             }
-            println!("{} {} packages upgraded.", "Success:".green(), count);
+            ui::print_upgrade_summary(count);
         }
 
         Commands::Update => {
@@ -112,12 +108,12 @@ fn main() -> Result<()> {
             // CALL ENGINE
             let result = engine.update_registry(event_handler)?;
 
-            rush::ui::print_update_success(&result.source);
+            ui::print_update_success(&result.source);
         }
 
         Commands::Clean => {
             let result = engine.clean_trash()?;
-            rush::ui::print_clean_result(&result);
+            ui::print_clean_result(&result);
         }
 
         Commands::Dev { command } => match command {

@@ -5,6 +5,18 @@ use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 
+// -- GENERAL UI FUNCTIONS -- 
+
+/// Display an error message
+pub fn print_error(msg: &str) {
+    println!("{} {}", "Error:".red(), msg);
+}
+
+/// Display a warning message
+pub fn print_warning(msg: &str) {
+    println!("{} {}", "Warning:".yellow(), msg);
+}
+
 /// Display the list of installed packages given
 pub fn print_installed_packages(packages: &HashMap<String, InstalledPackage>) {
     println!("{}", "Installed Packages:".bold());
@@ -83,10 +95,6 @@ pub fn print_install_success(path: &std::path::Path) {
     println!("{} Installed to {:?}", "Success:".green(), path);
 }
 
-pub fn print_error(msg: &str) {
-    println!("{} {}", "Error:".red(), msg);
-}
-
 /// Factory: Creates a closure that handles InstallEvents and updates the progress bar
 pub fn create_install_handler<'a>(
     pb: &'a mut Option<ProgressBar>,
@@ -122,6 +130,7 @@ pub fn create_install_handler<'a>(
 
 // --- UPDATE UI ---
 
+/// Display the successful result of an update operation
 pub fn print_update_success(source: &str) {
     println!("{} Registry updated from {}.", "Success:".green(), source);
 }
@@ -153,4 +162,24 @@ pub fn create_update_handler<'a>(pb: &'a mut Option<ProgressBar>) -> impl FnMut(
             }
         }
     }
+}
+
+// --- UPGRADE UI ---
+
+pub fn print_upgrade_check() {
+    println!("{}", "Checking for upgrades...".cyan());
+}
+
+pub fn print_upgrade_start(name: &str, old_v: &str, new_v: &str) {
+    println!(
+        "{} {} (v{} -> v{})...",
+        "Upgrading".cyan(),
+        name,
+        old_v,
+        new_v
+    );
+}
+
+pub fn print_upgrade_summary(count: usize) {
+    println!("{} {} packages upgraded.", "Success:".green(), count);
 }
