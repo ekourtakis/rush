@@ -76,16 +76,7 @@ fn main() -> Result<()> {
 
         Commands::Uninstall { name } => {
             let result = engine.uninstall_package(name)?;
-
-            if let Some(res) = result {
-                println!("{} {}...", "Uninstalling".cyan(), res.package_name);
-                for binary in res.binaries_removed {
-                    println!("   - Deleted {:?}", binary);
-                }
-                println!("{}", "Success: Uninstalled".green());
-            } else {
-                println!("{} Package '{}' is not installed", "Error:".red(), name);
-            }
+            rush::ui::print_uninstall_result(&result, name);
         }
 
         Commands::Upgrade => {

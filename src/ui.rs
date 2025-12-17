@@ -1,8 +1,8 @@
-use crate::models::{CleanResult, InstalledPackage, PackageManifest};
+use crate::models::{CleanResult, InstalledPackage, PackageManifest, UninstallResult};
 use colored::*;
 use std::collections::HashMap;
 
-/// Display the list of installed packages
+/// Display the list of installed packages given
 pub fn print_installed_packages(packages: &HashMap<String, InstalledPackage>) {
     println!("{}", "Installed Packages:".bold());
 
@@ -20,6 +20,7 @@ pub fn print_installed_packages(packages: &HashMap<String, InstalledPackage>) {
     }
 }
 
+/// Display the list of available packages given
 pub fn print_available_packages(packages: &[(String, PackageManifest)], target: &str) {
     println!("{} ({}):", "Available Packages".bold(), target);
 
@@ -36,6 +37,20 @@ pub fn print_available_packages(packages: &[(String, PackageManifest)], target: 
     }
 }
 
+/// Display the result of an uninstall operation
+pub fn print_uninstall_result(result: &Option<UninstallResult>, requested_name: &str) {
+    if let Some(res) = result {
+        println!("{} {}...", "Uninstalling".cyan(), res.package_name);
+        for binary in &res.binaries_removed {
+            println!("   - Deleted {:?}", binary);
+        }
+        println!("{}", "Success: Uninstalled".green());
+    } else {
+        println!("{} Package '{}' is not installed", "Error:".red(), requested_name);
+    }
+}
+
+/// Display the result of a cleaning operation
 pub fn print_clean_result(result: &CleanResult) {
     if result.files_cleaned.is_empty() {
         println!("{}", "No trash found. System is clean.".green());
