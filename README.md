@@ -10,10 +10,47 @@ I work only on x86 Linux, and cannot confirm rush works on any other platform.
 
 ## Installation
 
-Use the installer script: 
+Use the installer script:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ekourtakis/rush/main/scripts/install.sh | sh
+```
+
+### Autocompletions
+
+Rush can generate completion scripts for your shell.
+
+**Bash:**
+
+Add this to your `.bashrc`:
+
+```bash
+source <(rush completions bash)
+```
+
+**Zsh:**
+
+1. Create a folder for completions:
+
+    ```bash
+    mkdir -p ~/.zfunc
+    rush completions zsh > ~/.zfunc/_rush
+    ```
+
+2. Add this to your `.zshrc` (before `compinit`):
+
+    ```bash
+    fpath+=~/.zfunc
+    autoload -Uz compinit && compinit
+    ```
+
+**Fish:**
+
+Save the completion file to your config directory:
+
+```bash
+mkdir -p ~/.config/fish/completions
+rush completions fish > ~/.config/fish/completions/rush.fish
 ```
 
 ### Build and Install
@@ -125,21 +162,6 @@ rush dev import sharkdp/bat
 rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
 ```
 
-### Pre-PR Check
-
-Before opening a Pull Request, run the local CI script to ensure formatting, linting, and tests all pass:
-
-```bash
-./scripts/pre-pr.sh
-```
-
-If you use the GitHub CLI (`gh`), you can create an alias to run checks automatically before submitting:
-
-```bash
-gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
-# Usage: gh submit --web
-```
-
 ### Testing
 
 Unit tests are either located at the end of source files. Integration tests are in `tests/`.
@@ -164,4 +186,19 @@ Use:
 
 ```sh
 cargo fmt --check
+```
+
+### Pre-PR Check
+
+Before opening a Pull Request, run the local CI script to ensure formatting, linting, and tests all pass:
+
+```bash
+./scripts/pre-pr.sh
+```
+
+If you use the GitHub CLI (`gh`), you can create an alias to run checks automatically before submitting:
+
+```bash
+gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
+# Usage: gh submit --web
 ```

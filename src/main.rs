@@ -7,7 +7,8 @@
 //! - **Main:** connects the two. It fetches data from Core and passes it to UI.
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::generate;
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
@@ -23,6 +24,13 @@ fn main() -> Result<()> {
     let current_target = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
 
     match &cli.command {
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            let bin_name = cmd.get_name().to_string();
+            generate(*shell, &mut cmd, bin_name, &mut std::io::stdout());
+            return Ok(());
+        }
+
         Commands::List => {
             ui::print_installed_packages(&engine.state.packages);
         }
