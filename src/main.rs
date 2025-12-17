@@ -111,7 +111,7 @@ fn main() -> Result<()> {
                 url,
                 bin,
             } => {
-                ui::print_fetching_msg(&url);
+                ui::print_fetching_msg(url);
                 let event_handler = ui::create_install_handler();
 
                 engine.add_package_manual(
@@ -122,7 +122,7 @@ fn main() -> Result<()> {
                     bin.clone(),
                     event_handler,
                 )?;
-                ui::print_dev_add_success(&name);
+                ui::print_dev_add_success(name);
             }
             DevCommands::Import { repo } => {
                 ui::print_fetching_metadata(repo);
