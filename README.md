@@ -142,7 +142,7 @@ gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
 
 ### Testing
 
-Unit tests are either located at the end of source files or in the module folder (e.g., tests for `src/core.rs` are within `src/core/tests.rs`). Integration tests are in `tests/`.
+Unit tests are either located at the end of source files. Integration tests are in `tests/`.
 
 Run all tests:
 
