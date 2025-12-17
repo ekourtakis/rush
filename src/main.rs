@@ -10,7 +10,6 @@ use anyhow::Result;
 use clap::Parser;
 use colored::*;
 use dialoguer::{Select, theme::ColorfulTheme};
-use indicatif::ProgressBar;
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
@@ -45,14 +44,11 @@ fn main() -> Result<()> {
                 if let Some(target) = manifest.targets.get(&current_target) {
                     ui::print_install_start(name, &manifest.version);
 
-                    // UI SETUP
-                    let mut pb: Option<ProgressBar> = None;
-                    let event_handler = ui::create_install_handler(&mut pb);
+                    let event_handler = ui::create_install_handler();
 
-                    // CALL ENGINE
                     match engine.install_package(name, &manifest.version, target, event_handler) {
                         Ok(result) => ui::print_install_success(&result.path),
-                        Err(e) => rush::ui::print_error(&e.to_string()),
+                        Err(e) => ui::print_error(&e.to_string()),
                     }
                 } else {
                     ui::print_error(&format!("No compatible binary for {}", current_target));
@@ -90,9 +86,7 @@ fn main() -> Result<()> {
 
                 ui::print_upgrade_start(&name, &current_ver, &manifest.version);
 
-                // UI SETUP
-                let mut pb: Option<ProgressBar> = None;
-                let event_handler = rush::ui::create_install_handler(&mut pb);
+                let event_handler = ui::create_install_handler();
 
                 engine.install_package(&name, &manifest.version, target, event_handler)?;
                 count += 1;
@@ -101,13 +95,8 @@ fn main() -> Result<()> {
         }
 
         Commands::Update => {
-            // UI SETUP
-            let mut pb: Option<ProgressBar> = None;
-            let event_handler = rush::ui::create_update_handler(&mut pb);
-
-            // CALL ENGINE
+            let event_handler = ui::create_update_handler();
             let result = engine.update_registry(event_handler)?;
-
             ui::print_update_success(&result.source);
         }
 
@@ -126,8 +115,7 @@ fn main() -> Result<()> {
             } => {
                 println!("{} {}", "Fetching and hashing:".cyan(), url);
 
-                let mut pb: Option<ProgressBar> = None;
-                let event_handler = rush::ui::create_install_handler(&mut pb);
+                let event_handler = ui::create_install_handler();
 
                 engine.add_package_manual(
                     name.clone(),
@@ -183,8 +171,7 @@ fn main() -> Result<()> {
 
                     println!("{} {}", "Fetching and hashing:".cyan(), url);
 
-                    let mut pb: Option<ProgressBar> = None;
-                    let event_handler = rush::ui::create_install_handler(&mut pb);
+                    let event_handler = ui::create_install_handler();
 
                     engine.add_package_manual(
                         pkg_name.clone(),

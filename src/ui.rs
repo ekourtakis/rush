@@ -96,9 +96,11 @@ pub fn print_install_success(path: &std::path::Path) {
 }
 
 /// Factory: Creates a closure that handles InstallEvents and updates the progress bar
-pub fn create_install_handler<'a>(
-    pb: &'a mut Option<ProgressBar>,
-) -> impl FnMut(InstallEvent) + 'a {
+pub fn create_install_handler() -> impl FnMut(InstallEvent) {
+    // 1. Initialize state locally
+    let mut pb: Option<ProgressBar> = None;
+
+    // 2. Return a closure that moves 'pb' into itself
     move |event: InstallEvent| match event {
         InstallEvent::Downloading { total_bytes } => {
             let b = ProgressBar::new(total_bytes);
@@ -108,21 +110,22 @@ pub fn create_install_handler<'a>(
                     .unwrap()
                     .progress_chars("#>-"),
             );
-            *pb = Some(b);
+            pb = Some(b); // Mutate internal state
         }
         InstallEvent::Progress { bytes, total: _ } => {
-            if let Some(bar) = pb {
+            if let Some(bar) = &pb {
                 bar.inc(bytes);
             }
         }
         InstallEvent::VerifyingChecksum => {
-            if let Some(bar) = pb {
+            if let Some(bar) = &pb {
                 bar.finish_and_clear();
             }
             println!("{}", "Verifying checksum...".cyan());
         }
         InstallEvent::Success => {
-            println!("{}", "Checksum Verified.".green());
+            // Checksum verified
+             println!("{}", "Checksum Verified.".green());
         }
         _ => {}
     }
@@ -136,7 +139,9 @@ pub fn print_update_success(source: &str) {
 }
 
 /// Factory: Creates a closure that handles UpdateEvents
-pub fn create_update_handler<'a>(pb: &'a mut Option<ProgressBar>) -> impl FnMut(UpdateEvent) + 'a {
+pub fn create_update_handler() -> impl FnMut(UpdateEvent) {
+    let mut pb: Option<ProgressBar> = None;
+
     move |event: UpdateEvent| match event {
         UpdateEvent::Fetching { source } => {
             println!("{} from {}...", "Fetching registry".cyan(), source);
