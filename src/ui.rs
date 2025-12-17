@@ -1,5 +1,7 @@
+use anyhow::Result;
+use dialoguer::{Select, theme::ColorfulTheme};
 use crate::models::{
-    CleanResult, InstallEvent, InstalledPackage, PackageManifest, UninstallResult, UpdateEvent,
+    CleanResult, ImportCandidate, InstallEvent, InstalledPackage, PackageManifest, UninstallResult, UpdateEvent
 };
 use colored::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -187,4 +189,65 @@ pub fn print_upgrade_start(name: &str, old_v: &str, new_v: &str) {
 
 pub fn print_upgrade_summary(count: usize) {
     println!("{} {} packages upgraded.", "Success:".green(), count);
+}
+
+// --- DEV / WIZARD UI ---
+
+pub fn print_fetching_msg(url: &str) {
+    println!("{} {}", "Fetching and hashing:".cyan(), url);
+}
+
+pub fn print_dev_add_success(name: &str) {
+    println!("{} Added {} to local registry.", "Success:".green(), name);
+}
+
+pub fn print_fetching_metadata(repo: &str) {
+    println!("{} metadata for {}...", "Fetching".cyan(), repo);
+}
+
+pub fn print_found_release(version: &str) {
+    println!("Found Release: {}", version.green());
+}
+
+pub fn print_wizard_complete() {
+    println!("{}", "Import wizard complete.".green());
+}
+
+pub fn print_skipping_target(target: &str) {
+    println!("Skipping {}", target);
+}
+
+/// Interactive Prompt: Asks the user to select an asset from a list.
+/// Returns Ok(Some(index)) if an asset was selected.
+/// Returns Ok(None) if the user chose to skip.
+pub fn prompt_select_asset(candidate: &ImportCandidate) -> Result<Option<usize>> {
+    // 1. Build the menu items
+    let mut menu_items: Vec<String> = candidate
+        .assets
+        .iter()
+        .map(|scored| {
+            if scored.score > 0 {
+                format!("{} (Recommended)", scored.asset.name)
+            } else {
+                scored.asset.name.clone()
+            }
+        })
+        .collect();
+
+    // 2. Add the "Skip" option
+    menu_items.push("Skip this target".to_string());
+
+    // 3. Render the menu
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt(format!("Select asset for {}", candidate.target_desc.bold()))
+        .default(0)
+        .items(&menu_items)
+        .interact()?;
+
+    // 4. Return result
+    if selection == menu_items.len() - 1 {
+        Ok(None) // User selected "Skip"
+    } else {
+        Ok(Some(selection))
+    }
 }

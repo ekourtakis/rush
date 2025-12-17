@@ -8,8 +8,6 @@
 
 use anyhow::Result;
 use clap::Parser;
-use colored::*;
-use dialoguer::{Select, theme::ColorfulTheme};
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
@@ -113,8 +111,7 @@ fn main() -> Result<()> {
                 url,
                 bin,
             } => {
-                println!("{} {}", "Fetching and hashing:".cyan(), url);
-
+                ui::print_fetching_msg(&url);
                 let event_handler = ui::create_install_handler();
 
                 engine.add_package_manual(
@@ -125,64 +122,44 @@ fn main() -> Result<()> {
                     bin.clone(),
                     event_handler,
                 )?;
-
-                println!("{} Added {} to local registry.", "Success:".green(), name);
+                ui::print_dev_add_success(&name);
             }
             DevCommands::Import { repo } => {
-                println!("{} metadata for {}...", "Fetching".cyan(), repo);
+                ui::print_fetching_metadata(repo);
 
                 // 1. Get Candidates from Core
                 let (pkg_name, version, candidates) =
                     engine.fetch_github_import_candidates(repo)?;
-
-                println!("Found Release: {}", version.green());
+                ui::print_found_release(&version);
 
                 // 2. Interactive Wizard
                 for candidate in candidates {
-                    // Create display strings
-                    let mut menu_items: Vec<String> = candidate
-                        .assets
-                        .iter()
-                        .map(|scored| {
-                            // Visual hint for high scoring matches
-                            if scored.score > 0 {
-                                format!("{} (Recommended)", scored.asset.name)
-                            } else {
-                                scored.asset.name.clone()
-                            }
-                        })
-                        .collect();
+                    // Ask UI to prompt the user
+                    let selection_index = ui::prompt_select_asset(&candidate)?;
 
-                    menu_items.push("Skip this target".to_string());
+                    match selection_index {
+                        Some(idx) => {
+                            let asset = &candidate.assets[idx].asset;
+                            let url = asset.browser_download_url.clone();
 
-                    let selection = Select::with_theme(&ColorfulTheme::default())
-                        .with_prompt(format!("Select asset for {}", candidate.target_desc.bold()))
-                        .default(0)
-                        .items(&menu_items)
-                        .interact()?;
+                            ui::print_fetching_msg(&url);
+                            let event_handler = ui::create_install_handler();
 
-                    if selection == menu_items.len() - 1 {
-                        println!("Skipping {}", candidate.target_slug);
-                        continue;
+                            engine.add_package_manual(
+                                pkg_name.clone(),
+                                version.clone(),
+                                candidate.target_slug.clone(),
+                                url,
+                                None,
+                                event_handler,
+                            )?;
+                        }
+                        None => {
+                            ui::print_skipping_target(&candidate.target_slug);
+                        }
                     }
-
-                    let asset = &candidate.assets[selection].asset;
-                    let url = asset.browser_download_url.clone();
-
-                    println!("{} {}", "Fetching and hashing:".cyan(), url);
-
-                    let event_handler = ui::create_install_handler();
-
-                    engine.add_package_manual(
-                        pkg_name.clone(),
-                        version.clone(),
-                        candidate.target_slug.clone(),
-                        url,
-                        None,
-                        event_handler,
-                    )?;
                 }
-                println!("{}", "Import wizard complete.".green());
+                ui::print_wizard_complete();
             }
         },
     }
