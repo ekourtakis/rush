@@ -1,4 +1,4 @@
-use crate::models::{InstalledPackage, PackageManifest};
+use crate::models::{CleanResult, InstalledPackage, PackageManifest};
 use colored::*;
 use std::collections::HashMap;
 
@@ -33,5 +33,20 @@ pub fn print_available_packages(packages: &[(String, PackageManifest)], target: 
         if manifest.targets.contains_key(target) {
             println!(" - {} (v{})", name.bold(), manifest.version);
         }
+    }
+}
+
+pub fn print_clean_result(result: &CleanResult) {
+    if result.files_cleaned.is_empty() {
+        println!("{}", "No trash found. System is clean.".green());
+    } else {
+        for filename in &result.files_cleaned {
+            println!("{} {:?}", "Deleted trash:".yellow(), filename);
+        }
+        println!(
+            "{} {} temporary files.",
+            "Cleaned".green(),
+            result.files_cleaned.len()
+        );
     }
 }

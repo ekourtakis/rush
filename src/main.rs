@@ -173,19 +173,7 @@ fn main() -> Result<()> {
 
         Commands::Clean => {
             let result = engine.clean_trash()?;
-
-            if result.files_cleaned.is_empty() {
-                println!("{}", "No trash found. System is clean.".green());
-            } else {
-                for filename in &result.files_cleaned {
-                    println!("{} {:?}", "Deleted trash:".yellow(), filename);
-                }
-                println!(
-                    "{} {} temporary files.",
-                    "Cleaned".green(),
-                    result.files_cleaned.len()
-                );
-            }
+            rush::ui::print_clean_result(&result);
         }
 
         Commands::Dev { command } => match command {
