@@ -1,5 +1,6 @@
 pub mod clean;
 pub mod uninstall;
+pub mod update;
 pub mod util;
 
 use crate::models::{
@@ -21,11 +22,11 @@ const DEFAULT_REGISTRY_URL: &str =
 /// The core engine that handles state and I/O
 pub struct RushEngine {
     pub state: State,
-    state_path: PathBuf,               // ~/.local/share/rush/installed.json
-    registry_dir: PathBuf,             // ~/.local/share/rush/registry/
-    bin_path: PathBuf,                 // ~/.local/bin
-    client: reqwest::blocking::Client, // HTTP Client
-    registry_source: String,
+    pub(crate) state_path: PathBuf, // ~/.local/share/rush/installed.json
+    pub(crate) registry_dir: PathBuf, // ~/.local/share/rush/registry/
+    pub(crate) bin_path: PathBuf,   // ~/.local/bin
+    pub(crate) client: reqwest::blocking::Client, // HTTP Client
+    pub(crate) registry_source: String,
 }
 
 impl RushEngine {
@@ -190,91 +191,11 @@ impl RushEngine {
     }
 
     /// Download the registry from the internet OR copy it from a local directory
-    pub fn update_registry<F>(&self, mut on_event: F) -> Result<UpdateResult>
+    pub fn update_registry<F>(&self, on_event: F) -> Result<UpdateResult>
     where
         F: FnMut(UpdateEvent),
     {
-        // Dependecy injection
-        let source = &self.registry_source;
-        on_event(UpdateEvent::Fetching {
-            source: source.clone(),
-        });
-
-        // Wipe old registry for a clean update
-        if self.registry_dir.exists() {
-            fs::remove_dir_all(&self.registry_dir)?;
-        }
-        fs::create_dir_all(&self.registry_dir)?;
-
-        // --- Guard Clause for Local Directory (Dev/Test Mode) ---
-        if !source.starts_with("http") {
-            let source_path = PathBuf::from(source);
-            if !source_path.exists() {
-                anyhow::bail!("Local registry path not found: {:?}", source_path);
-            }
-
-            let pkg_source = source_path.join("packages");
-            if !pkg_source.exists() {
-                // If 'packages' folder doesn't exist, there's nothing to copy.
-                return Ok(UpdateResult {
-                    source: source.clone(),
-                });
-            }
-
-            let pkg_dest = self.registry_dir.join("packages");
-            for entry in WalkDir::new(&pkg_source) {
-                let entry = entry?;
-                if let Ok(rel_path) = entry.path().strip_prefix(&pkg_source) {
-                    let dest_path = pkg_dest.join(rel_path);
-                    if entry.file_type().is_dir() {
-                        fs::create_dir_all(&dest_path)?;
-                    } else {
-                        fs::copy(entry.path(), &dest_path)?;
-                    }
-                }
-            }
-            // Return after the local copy is finished.
-            return Ok(UpdateResult {
-                source: source.clone(),
-            });
-        }
-
-        // --- Remote Tarball ---
-        // We create a "Mapper Closure" here.
-        // It takes the util function's "InstallEvent" and converts it to "UpdateEvent"
-        // This allows us to reuse the download logic despite the mismatched types.
-        let content = util::download_url(&self.client, source, &mut |event| {
-            match event {
-                // Map the progress
-                crate::models::InstallEvent::Progress { bytes, total } => {
-                    on_event(UpdateEvent::Progress { bytes, total });
-                }
-                // Ignore events that don't make sense for updating (like VerifyingChecksum)
-                _ => {}
-            }
-        })?;
-
-        on_event(UpdateEvent::Unpacking);
-
-        let tar = GzDecoder::new(&content[..]);
-        let mut archive = Archive::new(tar);
-
-        for entry in archive.entries()? {
-            let mut entry = entry?;
-            let path = entry.path()?;
-            if let Some(idx) = path.to_string_lossy().find("packages/") {
-                let relative_path = &path.to_string_lossy()[idx..];
-                let dest = self.registry_dir.join(relative_path);
-                if let Some(parent) = dest.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                entry.unpack(dest)?;
-            }
-        }
-
-        Ok(UpdateResult {
-            source: source.clone(),
-        })
+        update::update_registry(self, on_event)
     }
 
     /// Look up a specific package file (e.g. .../registry/packages/f/fzf.toml)

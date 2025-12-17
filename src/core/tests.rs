@@ -95,69 +95,6 @@ fn test_state_persistence() {
     assert!(engine.state.packages.contains_key("fake-pkg"));
 }
 
-// -- update_registry() tests --
-
-#[test]
-fn test_local_registry_update() {
-    let temp_dir = tempdir().unwrap();
-    let root = temp_dir.path().to_path_buf();
-
-    // Create a dummy registry SOURCE structure
-    // mimic packages/t/test-tool.toml
-    let source_dir = temp_dir.path().join("source");
-    let pkg_dir = source_dir.join("packages").join("t");
-    std::fs::create_dir_all(&pkg_dir).unwrap();
-
-    let dummy_toml = pkg_dir.join("test-tool.toml");
-    std::fs::write(
-        &dummy_toml,
-        r#"
-            version = "0.1.0"
-            description = "Test package"
-            [targets.x86_64-linux]
-            url = "http://example.com"
-            bin = "test"
-            sha256 = "123"
-        "#,
-    )
-    .unwrap();
-
-    // Create dummy engine and update
-    let engine =
-        RushEngine::with_root_and_registry(root.clone(), source_dir.to_str().unwrap().to_string())
-            .unwrap();
-
-    // Pass an empty callback that ignores all events
-    engine.update_registry(|_| {}).unwrap();
-
-    let found = engine.find_package("test-tool");
-    assert!(found.is_some());
-}
-
-#[test]
-fn test_write_package_manifest() {
-    let temp_dir = tempdir().unwrap();
-    let root = temp_dir.path().to_path_buf();
-
-    let engine =
-        RushEngine::with_root_and_registry(root.clone(), root.to_str().unwrap().to_string())
-            .unwrap();
-
-    engine
-        .write_package_manifest(
-            "test-tool",
-            "1.0.0",
-            "x86_64-linux",
-            "http://example.com",
-            Some("binary-name".to_string()),
-            "fake-hash-123",
-        )
-        .unwrap();
-
-    let expected_path = root.join("packages").join("t").join("test-tool.toml");
-    assert!(expected_path.exists());
-}
-
 #[test]
 /// This confirms that if found == false, your install_package function
 /// will trigger the "Binary missing in archive" error.
