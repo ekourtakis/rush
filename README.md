@@ -108,11 +108,11 @@ To use developer commands that modify the registry, you must set `RUSH_REGISTRY_
 
 | Command | Description |
 | :--- | :--- |
-| **`rush dev add`** | Add or update a package target in the local registry. [Usage](#add). |
+| **`rush dev add`** | Add or update a package target in the local registry. [Usage](#developer-examples). |
 | **`rush dev import`** | Interactive wizard to import packages from GitHub |
 | **`rush dev --help`** | Show help message. |
 
-#### Usage
+#### Developer Examples
 
 ```bash
 # 1. Point to your local registry source (must be writable)
@@ -123,6 +123,21 @@ rush dev import sharkdp/bat
 
 # 3. Or use the Manual Command
 rush dev add bat 0.24.0 x86_64-linux https://github.com/.../bat.tar.gz --bin bat
+```
+
+### Pre-PR Check
+
+Before opening a Pull Request, run the local CI script to ensure formatting, linting, and tests all pass:
+
+```bash
+./scripts/pre-pr.sh
+```
+
+If you use the GitHub CLI (`gh`), you can create an alias to run checks automatically before submitting:
+
+```bash
+gh alias set submit '!./scripts/pre-pr.sh && gh pr create "$@"'
+# Usage: gh submit --web
 ```
 
 ### Testing
