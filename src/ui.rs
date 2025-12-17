@@ -10,14 +10,19 @@ use std::collections::HashMap;
 
 // -- GENERAL UI FUNCTIONS --
 
-/// Display an error message
+/// Display a standard error message
 pub fn print_error(msg: &str) {
     println!("{} {}", "Error:".red(), msg);
 }
 
-/// Display a warning message
+/// Display a standard warning message
 pub fn print_warning(msg: &str) {
     println!("{} {}", "Warning:".yellow(), msg);
+}
+
+/// Display a standard success message
+pub fn print_success(msg: &str) {
+    println!("{} {}", "Success:".green(), msg);
 }
 
 // -- INTERNAL HELPERS --
@@ -82,13 +87,9 @@ pub fn print_uninstall_result(result: &Option<UninstallResult>, requested_name: 
         for binary in &res.binaries_removed {
             println!("   - Deleted {:?}", binary);
         }
-        println!("{}", "Success: Uninstalled".green());
+        print_success("Success: Uninstalled");
     } else {
-        println!(
-            "{} Package '{}' is not installed",
-            "Error:".red(),
-            requested_name
-        );
+        print_error(&format!("Package '{}' is not installed", requested_name));
     }
 }
 
@@ -102,11 +103,10 @@ pub fn print_clean_result(result: &CleanResult) {
         for filename in &result.files_cleaned {
             println!("{} {:?}", "Deleted trash:".yellow(), filename);
         }
-        println!(
-            "{} {} temporary files.",
-            "Cleaned".green(),
+        print_success(&format!(
+            "Cleaned {} temporary files.",
             result.files_cleaned.len()
-        );
+        ));
     }
 }
 
@@ -117,7 +117,7 @@ pub fn print_install_start(name: &str, version: &str) {
 }
 
 pub fn print_install_success(path: &std::path::Path) {
-    println!("{} Installed to {:?}", "Success:".green(), path);
+    print_success(&format!("Installed to {:?}", path));
 }
 
 /// Factory: Creates a closure that handles InstallEvents and updates the progress bar
@@ -140,7 +140,7 @@ pub fn create_install_handler() -> impl FnMut(InstallEvent) {
             println!("{}", "Verifying checksum...".cyan());
         }
         InstallEvent::Success => {
-            println!("{}", "Checksum Verified.".green());
+            print_success("Checksum verified.");
         }
         _ => {}
     }
@@ -150,7 +150,7 @@ pub fn create_install_handler() -> impl FnMut(InstallEvent) {
 
 /// Display the successful result of an update operation
 pub fn print_update_success(source: &str) {
-    println!("{} Registry updated from {}.", "Success:".green(), source);
+    print_success(&format!("Registry updated from {}.", source));
 }
 
 /// Factory: Creates a closure that handles UpdateEvents
@@ -190,7 +190,7 @@ pub fn print_upgrade_start(name: &str, old_v: &str, new_v: &str) {
 }
 
 pub fn print_upgrade_summary(count: usize) {
-    println!("{} {} packages upgraded.", "Success:".green(), count);
+    print_success(&format!("{} packages upgraded.", count));
 }
 
 // --- DEV / WIZARD UI ---
@@ -200,7 +200,7 @@ pub fn print_fetching_msg(url: &str) {
 }
 
 pub fn print_dev_add_success(name: &str) {
-    println!("{} Added {} to local registry.", "Success:".green(), name);
+    print_success(&format!("Added {} to local registry.", name));
 }
 
 pub fn print_fetching_metadata(repo: &str) {
