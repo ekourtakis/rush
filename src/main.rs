@@ -1,11 +1,17 @@
+//! # The "Orchestrator"
+//!
+//! This file acts as the bridge between the CLI arguments, the Core logic, and the UI.
+//!
+//! - **Core (`rush::core`):** Handles state, file I/O, network requests. Returns raw data.
+//! - **UI (`rush::ui`):** Handles formatting, colors, progress bars, and user interaction.
+//! - **Main:** connects the two. It fetches data from Core and passes it to UI.
+
 use anyhow::Result;
 use clap::Parser;
-use colored::*;
-use dialoguer::{Select, theme::ColorfulTheme};
-use indicatif::{ProgressBar, ProgressStyle};
 
 use rush::cli::{Cli, Commands, DevCommands};
 use rush::core::RushEngine;
+use rush::ui;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -18,98 +24,56 @@ fn main() -> Result<()> {
 
     match &cli.command {
         Commands::List => {
-            println!("{}", "Installed Packages:".bold());
-            if engine.state.packages.is_empty() {
-                println!("   (No packages installed)");
-            } else {
-                for (name, pkg) in &engine.state.packages {
-                    println!(" - {} (v{})", name.bold(), pkg.version);
-                }
-            }
+            ui::print_installed_packages(&engine.state.packages);
         }
 
         Commands::Search => {
-            println!("{} ({}):", "Available Packages".bold(), current_target);
-
             let packages = engine.list_available_packages();
-
-            if packages.is_empty() {
-                println!("   (Registry empty or not found. Run 'rush update')");
-            }
-
-            for (name, manifest) in packages {
-                if manifest.targets.contains_key(&current_target) {
-                    println!(" - {} (v{})", name.bold(), manifest.version);
-                }
-            }
+            ui::print_available_packages(&packages, &current_target);
         }
 
         Commands::Install { name } => {
             if engine.state.packages.contains_key(name) {
-                println!("{} {} is already installed", "Warning:".yellow(), name);
+                ui::print_warning(&format!("{} is already installed", name));
                 return Ok(());
             }
 
             if let Some(manifest) = engine.find_package(name) {
                 if let Some(target) = manifest.targets.get(&current_target) {
-                    println!(
-                        "{} {} (v{})...",
-                        "Installing".cyan(),
-                        name,
-                        manifest.version
-                    );
+                    ui::print_install_start(name, &manifest.version);
 
-                    // UI SETUP
-                    let mut pb: Option<ProgressBar> = None;
-                    let event_handler = create_install_progress_handler(&mut pb);
+                    let event_handler = ui::create_install_handler();
 
-                    // CALL ENGINE
                     match engine.install_package(name, &manifest.version, target, event_handler) {
-                        Ok(result) => {
-                            println!("{} Installed to {:?}", "Success:".green(), result.path);
-                        }
-                        Err(e) => {
-                            println!("{} {}", "Error:".red(), e);
-                        }
+                        Ok(result) => ui::print_install_success(&result.path),
+                        Err(e) => ui::print_error(&e.to_string()),
                     }
                 } else {
-                    println!(
-                        "{} No compatible binary for {}",
-                        "Error:".red(),
-                        current_target
-                    );
+                    ui::print_error(&format!("No compatible binary for {}", current_target));
                 }
             } else {
-                println!("{} Package '{}' not found.", "Error:".red(), name);
+                ui::print_error(&format!("Package '{}' not found.", name));
             }
         }
 
         Commands::Uninstall { name } => {
             let result = engine.uninstall_package(name)?;
-
-            if let Some(res) = result {
-                println!("{} {}...", "Uninstalling".cyan(), res.package_name);
-                for binary in res.binaries_removed {
-                    println!("   - Deleted {:?}", binary);
-                }
-                println!("{}", "Success: Uninstalled".green());
-            } else {
-                println!("{} Package '{}' is not installed", "Error:".red(), name);
-            }
+            ui::print_uninstall_result(&result, name);
         }
 
         Commands::Upgrade => {
-            println!("{}", "Checking for upgrades...".cyan());
+            ui::print_upgrade_check();
+
             let installed_names: Vec<String> = engine.state.packages.keys().cloned().collect();
             let mut count = 0;
 
             for name in installed_names {
                 let current_ver = engine.state.packages.get(&name).unwrap().version.clone();
 
+                // Logic to find update
                 let Some(manifest) = engine.find_package(&name) else {
                     continue;
                 };
-
                 let Some(target) = manifest.targets.get(&current_target) else {
                     continue;
                 };
@@ -118,84 +82,25 @@ fn main() -> Result<()> {
                     continue;
                 }
 
-                println!(
-                    "{} {} (v{} -> v{})...",
-                    "Upgrading".cyan(),
-                    name,
-                    current_ver,
-                    manifest.version
-                );
+                ui::print_upgrade_start(&name, &current_ver, &manifest.version);
 
-                // --- Event Handler for Upgrade ---
-                let mut pb: Option<ProgressBar> = None;
-                let event_handler = create_install_progress_handler(&mut pb);
+                let event_handler = ui::create_install_handler();
 
-                // Pass the handler
                 engine.install_package(&name, &manifest.version, target, event_handler)?;
                 count += 1;
             }
-
-            println!("{} {} packages upgraded.", "Success:".green(), count);
+            ui::print_upgrade_summary(count);
         }
 
         Commands::Update => {
-            // 1. Prepare UI elements (the progress bar)
-            let mut pb: Option<ProgressBar> = None;
-
-            // 2. Define the callback function
-            let event_handler = |event: rush::models::UpdateEvent| {
-                match event {
-                    rush::models::UpdateEvent::Fetching { source } => {
-                        println!("{} from {}...", "Fetching registry".cyan(), source);
-                    }
-                    rush::models::UpdateEvent::Progress { bytes, total } => {
-                        // Create the progress bar on the first progress event
-                        let bar = pb.get_or_insert_with(|| {
-                            let b = ProgressBar::new(total);
-                            b.set_style(
-                                ProgressStyle::default_bar()
-                                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                                    .unwrap()
-                                    .progress_chars("#>-"),
-                            );
-                            b
-                        });
-                        bar.inc(bytes);
-                    }
-                    rush::models::UpdateEvent::Unpacking => {
-                        if let Some(bar) = pb.take() {
-                            bar.finish_with_message("Download complete");
-                        }
-                    }
-                }
-            };
-
-            // 3. Call the silent core logic, passing the UI handler
+            let event_handler = ui::create_update_handler();
             let result = engine.update_registry(event_handler)?;
-
-            // 4. Print the final success message
-            println!(
-                "{} Registry updated from {}.",
-                "Success:".green(),
-                result.source
-            );
+            ui::print_update_success(&result.source);
         }
 
         Commands::Clean => {
             let result = engine.clean_trash()?;
-
-            if result.files_cleaned.is_empty() {
-                println!("{}", "No trash found. System is clean.".green());
-            } else {
-                for filename in &result.files_cleaned {
-                    println!("{} {:?}", "Deleted trash:".yellow(), filename);
-                }
-                println!(
-                    "{} {} temporary files.",
-                    "Cleaned".green(),
-                    result.files_cleaned.len()
-                );
-            }
+            ui::print_clean_result(&result);
         }
 
         Commands::Dev { command } => match command {
@@ -206,10 +111,8 @@ fn main() -> Result<()> {
                 url,
                 bin,
             } => {
-                println!("{} {}", "Fetching and hashing:".cyan(), url);
-
-                let mut pb: Option<ProgressBar> = None;
-                let event_handler = create_install_progress_handler(&mut pb);
+                ui::print_fetching_msg(url);
+                let event_handler = ui::create_install_handler();
 
                 engine.add_package_manual(
                     name.clone(),
@@ -219,101 +122,47 @@ fn main() -> Result<()> {
                     bin.clone(),
                     event_handler,
                 )?;
-
-                println!("{} Added {} to local registry.", "Success:".green(), name);
+                ui::print_dev_add_success(name);
             }
             DevCommands::Import { repo } => {
-                println!("{} metadata for {}...", "Fetching".cyan(), repo);
+                ui::print_fetching_metadata(repo);
 
                 // 1. Get Candidates from Core
                 let (pkg_name, version, candidates) =
                     engine.fetch_github_import_candidates(repo)?;
-
-                println!("Found Release: {}", version.green());
+                ui::print_found_release(&version);
 
                 // 2. Interactive Wizard
                 for candidate in candidates {
-                    // Create display strings
-                    let mut menu_items: Vec<String> = candidate
-                        .assets
-                        .iter()
-                        .map(|scored| {
-                            // Visual hint for high scoring matches
-                            if scored.score > 0 {
-                                format!("{} (Recommended)", scored.asset.name)
-                            } else {
-                                scored.asset.name.clone()
-                            }
-                        })
-                        .collect();
+                    // Ask UI to prompt the user
+                    let selection_index = ui::prompt_select_asset(&candidate)?;
 
-                    menu_items.push("Skip this target".to_string());
+                    match selection_index {
+                        Some(idx) => {
+                            let asset = &candidate.assets[idx].asset;
+                            let url = asset.browser_download_url.clone();
 
-                    let selection = Select::with_theme(&ColorfulTheme::default())
-                        .with_prompt(format!("Select asset for {}", candidate.target_desc.bold()))
-                        .default(0)
-                        .items(&menu_items)
-                        .interact()?;
+                            ui::print_fetching_msg(&url);
+                            let event_handler = ui::create_install_handler();
 
-                    if selection == menu_items.len() - 1 {
-                        println!("Skipping {}", candidate.target_slug);
-                        continue;
+                            engine.add_package_manual(
+                                pkg_name.clone(),
+                                version.clone(),
+                                candidate.target_slug.clone(),
+                                url,
+                                None,
+                                event_handler,
+                            )?;
+                        }
+                        None => {
+                            ui::print_skipping_target(&candidate.target_slug);
+                        }
                     }
-
-                    let asset = &candidate.assets[selection].asset;
-                    let url = asset.browser_download_url.clone();
-
-                    println!("{} {}", "Fetching and hashing:".cyan(), url);
-
-                    let mut pb: Option<ProgressBar> = None;
-                    let event_handler = create_install_progress_handler(&mut pb);
-
-                    engine.add_package_manual(
-                        pkg_name.clone(),
-                        version.clone(),
-                        candidate.target_slug,
-                        url,
-                        None,
-                        event_handler,
-                    )?;
                 }
-                println!("{}", "Import wizard complete.".green());
+                ui::print_wizard_complete();
             }
         },
     }
 
     Ok(())
-}
-
-/// Helper to create a closure for install progress events
-fn create_install_progress_handler<'a>(
-    pb: &'a mut Option<ProgressBar>,
-) -> impl FnMut(rush::models::InstallEvent) + 'a {
-    move |event: rush::models::InstallEvent| match event {
-        rush::models::InstallEvent::Downloading { total_bytes } => {
-            let b = ProgressBar::new(total_bytes);
-            b.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-                    .unwrap()
-                    .progress_chars("#>-"),
-            );
-            *pb = Some(b);
-        }
-        rush::models::InstallEvent::Progress { bytes, total: _ } => {
-            if let Some(bar) = pb {
-                bar.inc(bytes);
-            }
-        }
-        rush::models::InstallEvent::VerifyingChecksum => {
-            if let Some(bar) = pb {
-                bar.finish_and_clear();
-            }
-            println!("{}", "Verifying checksum...".cyan());
-        }
-        rush::models::InstallEvent::Success => {
-            println!("{}", "Checksum Verified.".green());
-        }
-        _ => {}
-    }
 }
