@@ -43,7 +43,7 @@ where
 
 /// Internal helper: Updates the registry file.
 /// We pass `registry_source` string directly since we don't need the whole engine.
-pub fn write_package_manifest(
+fn write_package_manifest(
     registry_source: &str,
     name: &str,
     version: &str,
