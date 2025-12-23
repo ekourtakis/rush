@@ -2,6 +2,7 @@ use crate::models::InstallEvent;
 use anyhow::Result;
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::io::Read;
 
 /// Generic download with progress events
@@ -9,6 +10,30 @@ pub fn download_url<F>(client: &Client, url: &str, on_event: &mut F) -> Result<V
 where
     F: FnMut(InstallEvent),
 {
+    // Testing
+    if url.starts_with("file://") {
+        let path = url.trim_start_matches("file://");
+        let metadata = fs::metadata(path)?;
+        let total_size = metadata.len();
+
+        on_event(InstallEvent::Downloading {
+            total_bytes: total_size,
+        });
+        on_event(InstallEvent::Progress {
+            bytes: 0,
+            total: total_size,
+        });
+
+        let content = fs::read(path)?;
+
+        on_event(InstallEvent::Progress {
+            bytes: total_size,
+            total: total_size,
+        });
+
+        return Ok(content);
+    }
+
     let mut response = client.get(url).send()?.error_for_status()?;
     let total_size = response.content_length().unwrap_or(0);
 
