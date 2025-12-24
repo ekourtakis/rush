@@ -54,13 +54,18 @@ fn main() -> Result<()> {
 
                     match engine.install_package(name, &manifest.version, target, event_handler) {
                         Ok(result) => ui::print_install_success(&result.path),
-                        Err(e) => ui::print_error(&e.to_string()),
+                        Err(e) => {
+                            ui::print_error(&e.to_string());
+                            std::process::exit(1);
+                        }
                     }
                 } else {
                     ui::print_error(&format!("No compatible binary for {}", current_target));
+                    std::process::exit(1);
                 }
             } else {
                 ui::print_error(&format!("Package '{}' not found.", name));
+                std::process::exit(1);
             }
         }
 
