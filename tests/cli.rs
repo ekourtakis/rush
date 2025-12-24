@@ -60,14 +60,14 @@ fn test_security_checksum_mismatch() {
     cmd.envs(mock.envs());
 
     // 1. Update (should succeed, we don't check hashes on update)
-    cmd.args(&["update"]).assert().success();
+    cmd.args(["update"]).assert().success();
 
     // 2. Install (MUST FAIL)
     let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     install_cmd.envs(mock.envs());
 
     install_cmd
-        .args(&["install", "bad-pkg"])
+        .args(["install", "bad-pkg"])
         .assert()
         // We expect it to print an Error and likely return non-zero?
         // Note: Your main() returns Result<()>, so anyhow will print Error: ... and exit 1
@@ -95,14 +95,14 @@ fn test_stress_registry_performance() {
     cmd.envs(mock.envs());
 
     // Update should handle 50 files efficiently
-    cmd.args(&["update"]).assert().success();
+    cmd.args(["update"]).assert().success();
 
     // Search should list them all
     let mut search_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     search_cmd.envs(mock.envs());
 
     search_cmd
-        .args(&["search"])
+        .args(["search"])
         .assert()
         .success()
         // Spot check first and last
@@ -121,11 +121,11 @@ fn test_upgrade_flow() {
     cmd.envs(mock.envs());
 
     // Install v1
-    cmd.args(&["update"]).assert().success();
+    cmd.args(["update"]).assert().success();
 
     let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     install_cmd.envs(mock.envs());
-    install_cmd.args(&["install", "my-tool"]).assert().success();
+    install_cmd.args(["install", "my-tool"]).assert().success();
 
     // Verify v1 output
     let tool_path = mock.home.join(".local/bin/tool");
@@ -147,10 +147,10 @@ fn test_upgrade_flow() {
     // We need to run update first to fetch the new TOML
     let mut update_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     update_cmd.envs(mock.envs());
-    update_cmd.args(&["update"]).assert().success();
+    update_cmd.args(["update"]).assert().success();
 
     // Now upgrade
-    upgrade_cmd.args(&["upgrade"]).assert().success().stdout(
+    upgrade_cmd.args(["upgrade"]).assert().success().stdout(
         predicate::str::contains("Upgrading").and(predicate::str::contains("v1.0.0 -> v2.0.0")),
     );
 
@@ -166,7 +166,7 @@ fn test_upgrade_flow() {
     let mut list_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     list_cmd.envs(mock.envs());
     list_cmd
-        .args(&["list"])
+        .args(["list"])
         .assert()
         .success()
         .stdout(predicate::str::contains("my-tool").and(predicate::str::contains("v2.0.0")));
@@ -181,17 +181,17 @@ fn test_install_already_installed() {
     cmd.envs(mock.envs());
 
     // First install
-    cmd.args(&["update"]).assert().success();
+    cmd.args(["update"]).assert().success();
 
     let mut install_1 = Command::new(env!("CARGO_BIN_EXE_rush"));
     install_1.envs(mock.envs());
-    install_1.args(&["install", "pkg-a"]).assert().success();
+    install_1.args(["install", "pkg-a"]).assert().success();
 
     // Second install (Should succeed gracefully)
     let mut install_2 = Command::new(env!("CARGO_BIN_EXE_rush"));
     install_2.envs(mock.envs());
     install_2
-        .args(&["install", "pkg-a"])
+        .args(["install", "pkg-a"])
         .assert()
         .success() // Should exit 0
         .stdout(predicate::str::contains("is already installed")); // Should warn
