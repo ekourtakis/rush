@@ -54,20 +54,25 @@ impl MockEnvironment {
         let archive_name = format!("{}-{}.tar.gz", name, version);
         let archive_path = self.registry_source.join(&archive_name);
 
-        // 2. Create Tarball
-        let tar_file = File::create(&archive_path).expect("Failed to create tar file");
-        let enc = GzEncoder::new(tar_file, Compression::default());
-        let mut tar = Builder::new(enc);
+        // 2. Create Tarball (scoped for flush)
+        {
+            let tar_file = File::create(&archive_path).expect("Failed to create tar file");
+            let enc = GzEncoder::new(tar_file, Compression::default());
+            let mut tar = Builder::new(enc);
 
-        let mut header = tar::Header::new_gnu();
-        header.set_size(script_content.len() as u64);
-        header.set_mode(0o755);
-        header.set_cksum();
-        tar.append_data(&mut header, bin_name, script_content.as_bytes())
-            .unwrap();
-        tar.finish().unwrap();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(script_content.len() as u64);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append_data(&mut header, bin_name, script_content.as_bytes())
+                .unwrap();
 
-        // 3. Calculate (or fake) SHA256
+            // Explicitly finish tar, then finish gzip, then drop file
+            let enc = tar.into_inner().unwrap();
+            enc.finish().unwrap();
+        }
+
+        // 3. Calculate SHA256
         let sha256 = if let Some(bad_hash) = checksum_override {
             bad_hash.to_string()
         } else {
