@@ -82,13 +82,54 @@ pub fn verify_checksum(content: &[u8], expected_hash: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_verify_checksum() {
         let data = b"hello world";
         let correct_hash = "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9";
         let wrong_hash = "literally-anything-else";
+
         assert!(verify_checksum(data, correct_hash).is_ok());
         assert!(verify_checksum(data, wrong_hash).is_err());
+    }
+
+    #[test]
+    fn test_download_url_file_protocol() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let content = b"fake internet content";
+        temp_file.write_all(content).unwrap();
+
+        let path = temp_file.path().to_str().unwrap();
+        let url = format!("file://{}", path);
+
+        let client = Client::new();
+        let mut progress_count = 0;
+
+        let result = download_url(&client, &url, &mut |_| {
+            progress_count += 1;
+        })
+        .unwrap();
+
+        assert_eq!(result, content);
+        assert!(
+            progress_count > 0,
+            "Progress callback should have been called"
+        );
+    }
+
+    #[test]
+    fn test_download_url_file_missing() {
+        let client = Client::new();
+
+        let url = "file:///path/to/nowhere/ghost.tar.gz";
+
+        let result = download_url(&client, url, &mut |_| {});
+
+        assert!(result.is_err());
+
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("No such file") || err_msg.contains("cannot find"));
     }
 }
