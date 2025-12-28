@@ -72,4 +72,17 @@ mod tests {
         let reloaded_engine = RushEngine::with_root(root.clone()).unwrap();
         assert!(!reloaded_engine.state.packages.contains_key("dummy-tool"));
     }
+
+    #[test]
+    fn test_uninstall_missing_package() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let mut engine = RushEngine::with_root(root).unwrap();
+
+        // Try to uninstall something that isn't there
+        let result = uninstall_package(&mut engine, "ghost-pkg").unwrap();
+
+        // Should return Ok(None)
+        assert!(result.is_none());
+    }
 }
