@@ -223,20 +223,17 @@ fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::models::GitHubAsset;
     use tempfile::tempdir;
 
     #[test]
     fn test_write_package_manifest() {
         let temp_dir = tempdir().unwrap();
         let root = temp_dir.path().to_path_buf();
-
-        // We don't actually need the engine to test writing a file,
-        // we just need the path string!
         let registry_path = root.to_str().unwrap();
 
-        // Call the module function directly
-        // Note: You might need to make sure `dev` is pub in core.rs or import it via crate::core::dev
-        crate::core::dev::write_package_manifest(
+        write_package_manifest(
             registry_path,
             "test-tool",
             "1.0.0",
@@ -249,5 +246,198 @@ mod tests {
 
         let expected_path = root.join("packages").join("t").join("test-tool.toml");
         assert!(expected_path.exists());
+    }
+
+    #[test]
+    fn test_write_package_manifest_invalid_path() {
+        // Pass a non-existent path
+        let result = write_package_manifest(
+            "/path/to/nowhere",
+            "pkg",
+            "1.0",
+            "target",
+            "url",
+            None,
+            "hash",
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must be set"));
+    }
+
+    #[test]
+    fn test_write_package_manifest_empty_name() {
+        let temp_dir = tempdir().unwrap();
+        let registry_path = temp_dir.path().to_str().unwrap();
+
+        // Pass empty name
+        let result = write_package_manifest(
+            registry_path,
+            "", // Empty name
+            "1.0",
+            "target",
+            "url",
+            None,
+            "hash",
+        );
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Package name empty")
+        );
+    }
+
+    #[test]
+    fn test_write_package_manifest_update_existing() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let registry_path = root.to_str().unwrap();
+
+        // 1. First Add: Linux
+        write_package_manifest(
+            registry_path,
+            "multi-tool",
+            "1.0.0",
+            "x86_64-linux",
+            "http://linux.tar.gz",
+            None,
+            "hash1",
+        )
+        .unwrap();
+
+        // 2. Second Add: macOS (Same version, different target)
+        write_package_manifest(
+            registry_path,
+            "multi-tool",
+            "1.0.0",
+            "aarch64-macos",
+            "http://mac.tar.gz",
+            None,
+            "hash2",
+        )
+        .unwrap();
+
+        // 3. Read back the file
+        let toml_path = root.join("packages").join("m").join("multi-tool.toml");
+        let content = std::fs::read_to_string(toml_path).unwrap();
+        let manifest: PackageManifest = toml::from_str(&content).unwrap();
+
+        // 4. Verify BOTH targets exist
+        assert!(
+            manifest.targets.contains_key("x86_64-linux"),
+            "Lost Linux target"
+        );
+        assert!(
+            manifest.targets.contains_key("aarch64-macos"),
+            "Failed to add Mac target"
+        );
+
+        assert_eq!(manifest.targets["x86_64-linux"].sha256, "hash1");
+        assert_eq!(manifest.targets["aarch64-macos"].sha256, "hash2");
+    }
+
+    #[test]
+    fn test_calculate_asset_score() {
+        // CASE 1: Linux x86_64
+        let target = "x86_64-linux";
+
+        // Perfect match: tar.gz (+20), linux (+10), x86_64 (+10), musl (+5) = 45
+        assert_eq!(
+            calculate_asset_score("app-x86_64-unknown-linux-musl.tar.gz", target),
+            45
+        );
+
+        // Good match: tar.gz (+20), linux (+10), amd64 (+10) = 40
+        assert_eq!(calculate_asset_score("app-linux-amd64.tar.gz", target), 40);
+
+        // Okay match: zip (-10), linux (+10), amd64 (+10) = 10
+        assert_eq!(calculate_asset_score("app-linux-amd64.zip", target), 10);
+
+        // Wrong Arch: tar.gz (+20), linux (+10), arm64 (-50) = -20
+        assert_eq!(calculate_asset_score("app-linux-arm64.tar.gz", target), -20);
+
+        // Wrong OS: tar.gz (+20), x86_64 (+10), macos (-50) = -20
+        assert_eq!(
+            calculate_asset_score("app-x86_64-apple-darwin.tar.gz", target),
+            -20
+        );
+
+        // Garbage: deb (-100), amd64 (+10) = -90
+        assert_eq!(calculate_asset_score("app_amd64.deb", target), -90);
+
+        // CASE 2: macOS ARM
+        let target = "aarch64-macos";
+
+        // Perfect match: tar.gz (+20), apple (+10), aarch64 (+10) = 40
+        assert_eq!(
+            calculate_asset_score("app-aarch64-apple-darwin.tar.gz", target),
+            40
+        );
+
+        // Wrong Arch: tar.gz (+20), apple (+10), x86_64 (-50) = -20
+        assert_eq!(
+            calculate_asset_score("app-x86_64-apple-darwin.tar.gz", target),
+            -20
+        );
+
+        // CASE 3: Global filters
+        // Checksums should be heavily penalized regardless of platform
+        assert!(calculate_asset_score("app-linux-amd64.tar.gz.sha256", "x86_64-linux") < -50);
+    }
+
+    #[test]
+    fn test_candidate_ranking_logic() {
+        // 1. Create a Fake Release with a mix of good and bad assets
+        let release = GitHubRelease {
+            tag_name: "v1.2.3".to_string(),
+            assets: vec![
+                GitHubAsset {
+                    name: "app.deb".to_string(),
+                    browser_download_url: "url".to_string(),
+                }, // Bad (-80)
+                GitHubAsset {
+                    name: "app.tar.gz".to_string(),
+                    browser_download_url: "url".to_string(),
+                }, // Ambiguous (+20)
+                GitHubAsset {
+                    name: "app-x86_64-linux.tar.gz".to_string(),
+                    browser_download_url: "url".to_string(),
+                }, // Best (+45)
+                GitHubAsset {
+                    name: "app-linux.zip".to_string(),
+                    browser_download_url: "url".to_string(),
+                }, // Mediocre (+10)
+            ],
+        };
+
+        // 2. Run logic
+        let (version, candidates) = build_candidates_from_release(&release);
+
+        assert_eq!(version, "1.2.3");
+
+        // 3. Find the Linux candidate list
+        let linux_candidate = candidates
+            .iter()
+            .find(|c| c.target_slug == "x86_64-linux")
+            .expect("Should have generated linux targets");
+
+        // 4. Verify Sorting Order (Best score first)
+        let filenames: Vec<&str> = linux_candidate
+            .assets
+            .iter()
+            .map(|sa| sa.asset.name.as_str())
+            .collect();
+
+        assert_eq!(
+            filenames[0], "app-x86_64-linux.tar.gz",
+            "Best match should be first"
+        );
+        assert_eq!(
+            filenames[1], "app.tar.gz",
+            "Generic tarball should be second"
+        );
+        assert_eq!(filenames[2], "app-linux.zip", "Zip should be third");
+        assert_eq!(filenames[3], "app.deb", "Deb should be last");
     }
 }
