@@ -98,4 +98,40 @@ mod tests {
         // We implemented PartialEq on the Enum so we can compare directly
         assert_eq!(cli.command, Commands::Upgrade);
     }
+
+    #[test]
+    fn test_dev_add_command_parsing() {
+        let args = vec![
+            "rush",
+            "dev",
+            "add",
+            "my-tool",
+            "1.2.3",
+            "x86_64-linux",
+            "http://example.com/tool.tar.gz",
+            "--bin",
+            "tool-bin",
+        ];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Commands::Dev { command } => match command {
+                DevCommands::Add {
+                    name,
+                    version,
+                    target,
+                    url,
+                    bin,
+                } => {
+                    assert_eq!(name, "my-tool");
+                    assert_eq!(version, "1.2.3");
+                    assert_eq!(target, "x86_64-linux");
+                    assert_eq!(url, "http://example.com/tool.tar.gz");
+                    assert_eq!(bin, Some("tool-bin".to_string()));
+                }
+                _ => panic!("Parsed incorrect dev subcommand"),
+            },
+            _ => panic!("Parsed incorrect top-level command"),
+        }
+    }
 }
