@@ -194,4 +194,27 @@ mod tests {
 
         assert_eq!(original.packages["foo"], deserialized.packages["foo"]);
     }
+
+    #[test]
+    /// Verify we can parse GitHub Releases API JSON
+    fn test_github_release_deserialization() {
+        // Sample JSON from GitHub Releases API (abbreviated)
+        let json = r#"{
+            "url": "https://api.github.com/repos/octocat/Hello-World/releases/1",
+            "tag_name": "v1.0.0",
+            "assets": [
+                {
+                    "name": "example.zip",
+                    "browser_download_url": "https://github.com/octocat/Hello-World/releases/download/v1.0.0/example.zip"
+                }
+            ]
+        }"#;
+
+        let release: GitHubRelease =
+            serde_json::from_str(json).expect("Failed to parse GitHub JSON");
+
+        assert_eq!(release.tag_name, "v1.0.0");
+        assert_eq!(release.assets.len(), 1);
+        assert_eq!(release.assets[0].name, "example.zip");
+    }
 }
