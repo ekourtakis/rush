@@ -108,6 +108,7 @@ pub fn fetch_github_import_candidates(
     repo: &str,
 ) -> Result<(String, String, Vec<ImportCandidate>)> {
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
+
     let release: GitHubRelease = engine
         .client
         .get(&api_url)
@@ -115,8 +116,16 @@ pub fn fetch_github_import_candidates(
         .error_for_status()?
         .json()?;
 
-    let version = release.tag_name.trim_start_matches('v').to_string();
     let package_name = repo.split('/').nth(1).unwrap_or("unknown").to_string();
+
+    let (version, candidates) = build_candidates_from_release(&release);
+
+    Ok((package_name, version, candidates))
+}
+
+/// Helper: Transforms a GitHub Release into sorted ImportCandidates
+fn build_candidates_from_release(release: &GitHubRelease) -> (String, Vec<ImportCandidate>) {
+    let version = release.tag_name.trim_start_matches('v').to_string();
 
     let target_defs = vec![
         ("Linux (x86_64)", "x86_64-linux"),
@@ -145,7 +154,7 @@ pub fn fetch_github_import_candidates(
         });
     }
 
-    Ok((package_name, version, candidates))
+    (version, candidates)
 }
 
 /// Helper to rank assets
