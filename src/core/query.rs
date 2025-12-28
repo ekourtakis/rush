@@ -113,7 +113,7 @@ mod tests {
 
         // Setup: Create packages 'a-pkg' and 'b-pkg'
         let packages_root = engine.registry_dir.join("packages");
-        
+
         // A
         let dir_a = packages_root.join("a");
         fs::create_dir_all(&dir_a).unwrap();
@@ -168,7 +168,7 @@ mod tests {
 
         let prefix_dir = engine.registry_dir.join("packages").join("c");
         fs::create_dir_all(&prefix_dir).unwrap();
-        
+
         // Write garbage data
         fs::write(prefix_dir.join("corrupt.toml"), "This is not TOML").unwrap();
 
@@ -183,18 +183,19 @@ mod tests {
         let engine = RushEngine::with_root(root).unwrap();
 
         let packages_root = engine.registry_dir.join("packages");
-        
+
         // Good Package
         let dir_g = packages_root.join("g");
         fs::create_dir_all(&dir_g).unwrap();
         fs::write(
-            dir_g.join("good.toml"), 
+            dir_g.join("good.toml"),
             r#"version="1.0"
                [targets.x]
                url=""
                bin=""
-               sha256="""#
-        ).unwrap();
+               sha256="""#,
+        )
+        .unwrap();
 
         // Bad Package
         let dir_b = packages_root.join("b");

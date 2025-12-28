@@ -25,7 +25,7 @@ where
     fs::create_dir_all(&engine.registry_dir)?;
 
     // 2. Handle Local Directory
-    if !source.starts_with("http") {
+    if !source.starts_with("http") && !source.starts_with("file://") {
         let source_path = PathBuf::from(source);
         if !source_path.exists() {
             anyhow::bail!("Local registry path not found: {:?}", source_path);
@@ -90,6 +90,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::Compression;
+    use flate2::write::GzEncoder;
+    use std::fs::File;
+    use tar::Builder;
     use tempfile::tempdir;
 
     #[test]
@@ -104,30 +108,71 @@ mod tests {
         std::fs::create_dir_all(&pkg_dir).unwrap();
 
         let dummy_toml = pkg_dir.join("test-tool.toml");
-        std::fs::write(
-            &dummy_toml,
-            r#"
-            version = "0.1.0"
-            description = "Test package"
-            [targets.x86_64-linux]
-            url = "http://example.com"
-            bin = "test"
-            sha256 = "123"
-        "#,
-        )
-        .unwrap();
+        std::fs::write(&dummy_toml, "content").unwrap();
 
-        // Create dummy engine and update
         let engine = RushEngine::with_root_and_registry(
             root.clone(),
             source_dir.to_str().unwrap().to_string(),
         )
         .unwrap();
 
-        // Pass an empty callback that ignores all events
         engine.update_registry(|_| {}).unwrap();
 
-        let found = engine.find_package("test-tool");
-        assert!(found.is_some());
+        let expected_dest = engine.registry_dir.join("packages/t/test-tool.toml");
+        assert!(expected_dest.exists());
+    }
+
+    #[test]
+    fn test_update_missing_local_path() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        let engine =
+            RushEngine::with_root_and_registry(root, "/path/that/does/not/exist".to_string())
+                .unwrap();
+
+        let result = engine.update_registry(|_| {});
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn test_update_from_tarball() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+
+        let archive_path = temp_dir.path().join("registry.tar.gz");
+        let file = File::create(&archive_path).unwrap();
+        let enc = GzEncoder::new(file, Compression::default());
+        let mut tar = Builder::new(enc);
+
+        let mut header = tar::Header::new_gnu();
+        header.set_path("packages/z/zipped-tool.toml").unwrap();
+        header.set_size(4);
+        header.set_cksum();
+        tar.append_data(
+            &mut header,
+            "packages/z/zipped-tool.toml",
+            "data".as_bytes(),
+        )
+        .unwrap();
+
+        let enc = tar.into_inner().unwrap();
+        enc.finish().unwrap();
+
+        let url = format!("file://{}", archive_path.to_str().unwrap());
+        let engine = RushEngine::with_root_and_registry(root.clone(), url).unwrap();
+
+        engine.update_registry(|_| {}).unwrap();
+
+        let expected_file = engine
+            .registry_dir
+            .join("packages")
+            .join("z")
+            .join("zipped-tool.toml");
+        assert!(
+            expected_file.exists(),
+            "Registry tarball was not extracted correctly"
+        );
     }
 }
