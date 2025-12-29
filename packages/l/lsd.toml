@@ -1,0 +1,11 @@
+version = "1.2.0"
+
+[targets.aarch64-macos]
+url = "https://github.com/lsd-rs/lsd/releases/download/v1.2.0/lsd-v1.2.0-aarch64-apple-darwin.tar.gz"
+bin = "lsd"
+sha256 = "9e34a5d392ff913302098aad0543dafa1883c531eaf229b82f086c3fca675e3e"
+
+[targets.x86_64-linux]
+url = "https://github.com/lsd-rs/lsd/releases/download/v1.2.0/lsd-v1.2.0-x86_64-unknown-linux-musl.tar.gz"
+bin = "lsd"
+sha256 = "77849da1210336534258551a581401ba19ae6b8d7b66a2a1feff148ad41e3814"

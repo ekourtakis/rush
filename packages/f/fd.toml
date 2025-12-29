@@ -1,0 +1,11 @@
+version = "10.3.0"
+
+[targets.aarch64-macos]
+url = "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-aarch64-apple-darwin.tar.gz"
+bin = "fd"
+sha256 = "0570263812089120bc2a5d84f9e65cd0c25e4a4d724c80075c357239c74ae904"
+
+[targets.x86_64-linux]
+url = "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz"
+bin = "fd"
+sha256 = "2b6bfaae8c48f12050813c2ffe1884c61ea26e750d803df9c9114550a314cd14"
