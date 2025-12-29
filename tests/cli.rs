@@ -196,3 +196,239 @@ fn test_install_already_installed() {
         .success() // Should exit 0
         .stdout(predicate::str::contains("is already installed")); // Should warn
 }
+
+#[test]
+fn test_full_install_lifecycle() {
+    // 1. Setup Mock Environment
+    let mock = MockEnvironment::new();
+    mock.add_package("dummy-tool", "1.0.0", "dummy");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    // 2. Update & Search
+    cmd.args(["update"]).assert().success();
+
+    let mut search_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    search_cmd.envs(mock.envs());
+    search_cmd
+        .args(["search"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dummy-tool"));
+
+    // 3. Install
+    let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    install_cmd.envs(mock.envs());
+    install_cmd
+        .args(["install", "dummy-tool"])
+        .assert()
+        .success();
+
+    // 4. Verify Binary Execution
+    let installed_bin = mock.home.join(".local/bin/dummy");
+    assert!(
+        installed_bin.exists(),
+        "Binary was not installed to expected path"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(&installed_bin).unwrap();
+        let mode = metadata.permissions().mode();
+        assert_eq!(mode & 0o111, 0o111, "Binary is not executable");
+    }
+
+    // 5. List
+    let mut list_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    list_cmd.envs(mock.envs());
+    list_cmd
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dummy-tool"));
+
+    // 6. Uninstall
+    let mut uninstall_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    uninstall_cmd.envs(mock.envs());
+    uninstall_cmd
+        .args(["uninstall", "dummy-tool"])
+        .assert()
+        .success();
+
+    // 7. Verify Removal
+    assert!(!installed_bin.exists(), "Binary should have been deleted");
+
+    let mut list_cmd_2 = Command::new(env!("CARGO_BIN_EXE_rush"));
+    list_cmd_2.envs(mock.envs());
+    list_cmd_2
+        .args(["list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No packages installed"));
+}
+
+#[test]
+fn test_dev_add_flow() {
+    let mock = MockEnvironment::new();
+    // We don't add a package initially; we want the CLI to create one.
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    // Run 'rush dev add ...'
+    // We use a file:// URL to pass the download check
+    // We reuse the registry source path just to have a valid file to point to,
+    // even though it's not a real tarball, the checksum logic just reads bytes.
+    let dummy_file_path = mock.registry_source.join("dummy-source");
+    std::fs::write(&dummy_file_path, "fake binary content").unwrap();
+    let file_url = format!("file://{}", dummy_file_path.to_str().unwrap());
+
+    cmd.args([
+        "dev",
+        "add",
+        "new-tool",
+        "1.0.0",
+        "x86_64-linux",
+        &file_url,
+        "--bin",
+        "tool-bin",
+    ])
+    .assert()
+    .success()
+    .stdout(predicate::str::contains("Added new-tool"));
+
+    // Verify the file was created in the registry source
+    let manifest_path = mock.registry_source.join("packages/n/new-tool.toml");
+    assert!(manifest_path.exists(), "Manifest file was not created");
+
+    let content = std::fs::read_to_string(manifest_path).unwrap();
+    assert!(content.contains("version = \"1.0.0\""));
+    assert!(content.contains("x86_64-linux"));
+}
+
+#[test]
+fn test_completions_generation() {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+
+    // We don't need a mock env for this, it's pure logic
+    cmd.arg("completions")
+        .arg("bash")
+        .assert()
+        .success()
+        // Check for standard bash completion signature
+        .stdout(predicate::str::contains("complete -F"));
+}
+
+#[test]
+fn test_install_fails_on_broken_url() {
+    let mock = MockEnvironment::new();
+
+    // Add a package, but force the URL to point to a non-existent file
+    // We use the internal helper to bypass the valid-file check usually done in add_package
+    // (We construct the TOML manually here effectively)
+
+    // 1. Create a dummy package entry manually
+    let target_arch = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
+    let bad_url = "file:///path/to/nowhere/ghost.tar.gz";
+
+    let toml_content = format!(
+        r#"
+        version = "1.0.0"
+        [targets.{target_arch}]
+        url = "{bad_url}"
+        bin = "ghost"
+        sha256 = "fakehash"
+        "#
+    );
+
+    let pkg_dir = mock.registry_source.join("packages/g");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(pkg_dir.join("ghost.toml"), toml_content).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    // 2. Update to pull in the broken definition
+    cmd.args(["update"]).assert().success();
+
+    // 3. Try to install
+    let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    install_cmd.envs(mock.envs());
+
+    install_cmd
+        .args(["install", "ghost"])
+        .assert()
+        .failure() // Should exit 1
+        .stdout(
+            predicate::str::contains("No such file").or(predicate::str::contains("cannot find")),
+        );
+}
+
+#[test]
+fn test_recovers_from_corrupt_state() {
+    let mock = MockEnvironment::new();
+
+    // 1. Corrupt the installed.json file directly
+    let state_path = mock.home.join(".local/share/rush/installed.json");
+    std::fs::create_dir_all(state_path.parent().unwrap()).unwrap();
+    std::fs::write(&state_path, "{ broken_json: [ }").unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    // 2. Run a command that reads state
+    // It should NOT panic. It should just treat state as empty.
+    cmd.args(["list"])
+        .assert()
+        .success() // Should still work
+        .stdout(predicate::str::contains("No packages installed"));
+}
+
+#[test]
+fn test_arch_mismatch() {
+    let mock = MockEnvironment::new();
+
+    // 1. Manually create a package ONLY for an architecture that is definitely NOT the host
+    // We'll use a made-up architecture "fake-arch-os"
+    let toml_content = r#"
+        version = "1.0.0"
+        description = "Tool for aliens only"
+        [targets.fake-arch-os]
+        url = "http://ignore.me"
+        bin = "ignore"
+        sha256 = "ignore"
+    "#;
+
+    let pkg_dir = mock.registry_source.join("packages/e");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(pkg_dir.join("exclusive-tool.toml"), toml_content).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    // 2. Update
+    cmd.args(["update"]).assert().success();
+
+    // 3. Search
+    // Current behavior: It should NOT appear in the list because it filters by current target
+    let mut search_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    search_cmd.envs(mock.envs());
+    search_cmd
+        .args(["search"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("exclusive-tool").not());
+
+    // 4. Install
+    // Should find the manifest, but realize no target matches
+    let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    install_cmd.envs(mock.envs());
+
+    install_cmd
+        .args(["install", "exclusive-tool"])
+        .assert()
+        .failure() // Should exit 1
+        .stdout(predicate::str::contains("No compatible binary for"));
+}
