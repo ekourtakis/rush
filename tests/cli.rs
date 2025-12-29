@@ -389,7 +389,7 @@ fn test_recovers_from_corrupt_state() {
 #[test]
 fn test_arch_mismatch() {
     let mock = MockEnvironment::new();
-    
+
     // 1. Manually create a package ONLY for an architecture that is definitely NOT the host
     // We'll use a made-up architecture "fake-arch-os"
     let toml_content = r#"
@@ -411,11 +411,12 @@ fn test_arch_mismatch() {
     // 2. Update
     cmd.args(["update"]).assert().success();
 
-    // 3. Search 
+    // 3. Search
     // Current behavior: It should NOT appear in the list because it filters by current target
     let mut search_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     search_cmd.envs(mock.envs());
-    search_cmd.args(["search"])
+    search_cmd
+        .args(["search"])
         .assert()
         .success()
         .stdout(predicate::str::contains("exclusive-tool").not());
@@ -424,8 +425,9 @@ fn test_arch_mismatch() {
     // Should find the manifest, but realize no target matches
     let mut install_cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
     install_cmd.envs(mock.envs());
-    
-    install_cmd.args(["install", "exclusive-tool"])
+
+    install_cmd
+        .args(["install", "exclusive-tool"])
         .assert()
         .failure() // Should exit 1
         .stdout(predicate::str::contains("No compatible binary for"));
