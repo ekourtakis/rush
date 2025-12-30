@@ -52,13 +52,7 @@ fn write_package_manifest(
     bin_name: Option<String>,
     sha256: &str,
 ) -> Result<()> {
-    let source_path = PathBuf::from(registry_source);
-
-    if registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
-        anyhow::bail!(
-            "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'. Try 'export RUSH_REGISTRY_URL=\"$(pwd)\"'"
-        );
-    }
+    let source_path = validate_registry_source(registry_source)?;
 
     // Determine file path: e.g., packages/f/fzf.toml
     let prefix = name.chars().next().context("Package name empty")?;
@@ -100,6 +94,20 @@ fn write_package_manifest(
     std::fs::write(&package_path, toml_string)?;
 
     Ok(())
+}
+
+/// Helper: Validates the registry source path
+fn validate_registry_source(registry_source: &str) -> Result<PathBuf> {
+    let source_path = PathBuf::from(registry_source);
+
+    if registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
+        anyhow::bail!(
+            "RUSH_REGISTRY_URL must be set to your local git repository path to alter the local registry. \
+             \nTry: \n\texport RUSH_REGISTRY_URL=\"$(pwd)\""
+        );
+    }
+
+    Ok(source_path)
 }
 
 /// Developer Tool: Interactive Import wizard from GitHub
