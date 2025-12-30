@@ -115,6 +115,8 @@ pub fn fetch_github_import_candidates(
     engine: &RushEngine,
     repo: &str,
 ) -> Result<(String, String, Vec<ImportCandidate>)> {
+    validate_registry_source(&engine.registry_source)?;
+
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
 
     let release: GitHubRelease = engine
