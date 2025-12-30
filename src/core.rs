@@ -151,6 +151,11 @@ impl RushEngine {
     ) -> Result<(String, String, Vec<ImportCandidate>)> {
         dev::fetch_github_import_candidates(self, repo)
     }
+
+    /// Helper: verify RUSH_REGISTRY_URL is a valid local path for writing.
+    pub fn ensure_local_registry(&self) -> Result<PathBuf> {
+        dev::ensure_local_registry(&self.registry_source)
+    }
 }
 
 // --- TESTS ---

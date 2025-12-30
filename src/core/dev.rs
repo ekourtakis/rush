@@ -52,13 +52,7 @@ fn write_package_manifest(
     bin_name: Option<String>,
     sha256: &str,
 ) -> Result<()> {
-    let source_path = PathBuf::from(registry_source);
-
-    if registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
-        anyhow::bail!(
-            "RUSH_REGISTRY_URL must be set to your local git repository path to use 'dev add'. Try 'export RUSH_REGISTRY_URL=\"$(pwd)\"'"
-        );
-    }
+    let source_path = ensure_local_registry(registry_source)?;
 
     // Determine file path: e.g., packages/f/fzf.toml
     let prefix = name.chars().next().context("Package name empty")?;
@@ -102,11 +96,27 @@ fn write_package_manifest(
     Ok(())
 }
 
+/// Ensures registry env variable is set, fails otherwise
+pub fn ensure_local_registry(registry_source: &str) -> Result<PathBuf> {
+    let source_path = PathBuf::from(registry_source);
+
+    if registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
+        anyhow::bail!(
+            "RUSH_REGISTRY_URL must be set to your local git repository path to alter the local registry. \
+             \nTry: \n\texport RUSH_REGISTRY_URL=\"$(pwd)\""
+        );
+    }
+
+    Ok(source_path)
+}
+
 /// Developer Tool: Interactive Import wizard from GitHub
 pub fn fetch_github_import_candidates(
     engine: &RushEngine,
     repo: &str,
 ) -> Result<(String, String, Vec<ImportCandidate>)> {
+    ensure_local_registry(&engine.registry_source)?;
+
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
 
     let release: GitHubRelease = engine
@@ -335,6 +345,36 @@ mod tests {
 
         assert_eq!(manifest.targets["x86_64-linux"].sha256, "hash1");
         assert_eq!(manifest.targets["aarch64-macos"].sha256, "hash2");
+    }
+
+    #[test]
+    fn ensure_local_registry_accepts_valid_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_str().unwrap();
+
+        let resolved = ensure_local_registry(path).unwrap();
+        assert_eq!(resolved, temp.path());
+    }
+
+    #[test]
+    fn ensure_local_registry_fails_when_unset() {
+        let err = ensure_local_registry("").unwrap_err();
+        let msg = err.to_string();
+
+        assert!(msg.contains("RUSH_REGISTRY_URL must be set"));
+    }
+
+    #[test]
+    fn fetch_import_candidates_requires_local_registry() {
+        let temp_dir = tempdir().unwrap();
+
+        let engine =
+            RushEngine::with_root_and_registry(temp_dir.path().to_path_buf(), "".to_string())
+                .unwrap();
+
+        let err = fetch_github_import_candidates(&engine, "sharkdp/bat").unwrap_err();
+
+        assert!(err.to_string().contains("RUSH_REGISTRY_URL must be set"));
     }
 
     #[test]
