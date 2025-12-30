@@ -348,6 +348,36 @@ mod tests {
     }
 
     #[test]
+    fn ensure_local_registry_accepts_valid_dir() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().to_str().unwrap();
+
+        let resolved = ensure_local_registry(path).unwrap();
+        assert_eq!(resolved, temp.path());
+    }
+
+    #[test]
+    fn ensure_local_registry_fails_when_unset() {
+        let err = ensure_local_registry("").unwrap_err();
+        let msg = err.to_string();
+
+        assert!(msg.contains("RUSH_REGISTRY_URL must be set"));
+    }
+
+    #[test]
+    fn fetch_import_candidates_requires_local_registry() {
+        let temp_dir = tempdir().unwrap();
+
+        let engine =
+            RushEngine::with_root_and_registry(temp_dir.path().to_path_buf(), "".to_string())
+                .unwrap();
+
+        let err = fetch_github_import_candidates(&engine, "sharkdp/bat").unwrap_err();
+
+        assert!(err.to_string().contains("RUSH_REGISTRY_URL must be set"));
+    }
+
+    #[test]
     fn test_calculate_asset_score() {
         // CASE 1: Linux x86_64
         let target = "x86_64-linux";
