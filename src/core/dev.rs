@@ -1,11 +1,14 @@
 use crate::core::{RushEngine, util};
 use crate::models::{
     GitHubRelease, ImportCandidate, InstallEvent, PackageManifest, ScoredAsset, TargetDefinition,
+    VerificationFailure, VerifyResult,
 };
 use anyhow::{Context, Result};
+use flate2::read::GzDecoder;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use tar::Archive;
 
 /// Developer Tool: Create/Update a local package manifest
 pub fn add_package_manual<F>(
@@ -229,6 +232,73 @@ fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
         _ => {}
     }
     score
+}
+
+/// Iterates through the entire registry, checking downloads, hashes, and binary existence.
+pub fn verify_registry<F>(engine: &RushEngine, mut on_event: F) -> Result<VerifyResult>
+where
+    F: FnMut(InstallEvent),
+{
+    // 1. Get all packages
+    let packages = engine.list_available_packages();
+    let packages_count = packages.len();
+    let mut failures = Vec::new();
+    let mut targets_checked = 0;
+
+    for (pkg_name, manifest) in packages {
+        for (target_arch, target_def) in manifest.targets {
+            targets_checked += 1;
+
+            // We use an internal closure/block to capture errors for this specific target
+            // without stopping the whole verification process.
+            let check_result = (|| -> Result<()> {
+                // A. Download
+                let content = util::download_url(&engine.client, &target_def.url, &mut on_event)?;
+
+                // B. Verify Checksum
+                on_event(InstallEvent::VerifyingChecksum);
+                util::verify_checksum(&content, &target_def.sha256)?;
+
+                // C. Verify Binary Exists in Archive
+                let tar = GzDecoder::new(&content[..]);
+                let mut archive = Archive::new(tar);
+                let mut found = false;
+
+                for entry in archive.entries()? {
+                    let entry = entry?;
+                    let path = entry.path()?;
+                    if let Some(fname) = path.file_name() {
+                        if fname == std::ffi::OsStr::new(&target_def.bin) {
+                            found = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !found {
+                    anyhow::bail!("Binary '{}' not found inside archive", target_def.bin);
+                }
+
+                Ok(())
+            })();
+
+            // If an error occurred, record it
+            if let Err(e) = check_result {
+                failures.push(VerificationFailure {
+                    package_name: pkg_name.clone(),
+                    version: manifest.version.clone(),
+                    target: target_arch,
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(VerifyResult {
+        packages_checked: packages_count,
+        targets_checked,
+        failures,
+    })
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ mod util;
 
 use crate::models::{
     CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State,
-    TargetDefinition, UninstallResult, UpdateEvent, UpdateResult,
+    TargetDefinition, UninstallResult, UpdateEvent, UpdateResult, VerifyResult,
 };
 use anyhow::{Context, Result};
 use std::fs::{self};
@@ -155,6 +155,14 @@ impl RushEngine {
     /// Helper: verify RUSH_REGISTRY_URL is a valid local path for writing.
     pub fn ensure_local_registry(&self) -> Result<PathBuf> {
         dev::ensure_local_registry(&self.registry_source)
+    }
+
+    /// Developer Tool: Verify integrity of all packages in the registry
+    pub fn verify_registry<F>(&self, on_event: F) -> Result<VerifyResult>
+    where
+        F: FnMut(InstallEvent),
+    {
+        dev::verify_registry(self, on_event)
     }
 }
 

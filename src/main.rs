@@ -176,6 +176,24 @@ fn main() -> Result<()> {
                 }
                 ui::print_wizard_complete();
             }
+
+            DevCommands::Verify => {
+                // Ensure we are working with a valid registry source
+                engine.ensure_local_registry()?;
+
+                ui::print_verify_start();
+
+                // Reuse the install handler so we see progress bars for every download
+                let event_handler = ui::create_install_handler();
+
+                let result = engine.verify_registry(event_handler)?;
+
+                ui::print_verify_summary(&result);
+
+                if !result.failures.is_empty() {
+                    std::process::exit(1);
+                }
+            }
         },
     }
 

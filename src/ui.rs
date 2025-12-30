@@ -1,6 +1,6 @@
 use crate::models::{
     CleanResult, ImportCandidate, InstallEvent, InstalledPackage, PackageManifest, UninstallResult,
-    UpdateEvent,
+    UpdateEvent, VerifyResult,
 };
 use anyhow::Result;
 use colored::*;
@@ -251,5 +251,36 @@ pub fn prompt_select_asset(candidate: &ImportCandidate) -> Result<Option<usize>>
         Ok(None) // User selected "Skip"
     } else {
         Ok(Some(selection))
+    }
+}
+
+// --- VERIFY UI ---
+
+pub fn print_verify_start() {
+    println!("{}", "Verifying registry integrity...".cyan());
+}
+
+pub fn print_verify_summary(result: &VerifyResult) {
+    println!(""); // Spacing
+    if result.failures.is_empty() {
+        print_success(&format!(
+            "Verified {} packages ({} targets). All clean.",
+            result.packages_checked, result.targets_checked
+        ));
+    } else {
+        print_error(&format!(
+            "Verification failed for {} targets!",
+            result.failures.len()
+        ));
+        println!("{}", "Failures:".bold().underline());
+        for fail in &result.failures {
+            println!(
+                " Error: {} v{} ({})\n    └─ {}",
+                fail.package_name.bold(),
+                fail.version,
+                fail.target.yellow(),
+                fail.error.red()
+            );
+        }
     }
 }

@@ -104,6 +104,23 @@ pub struct InstallResult {
     pub path: PathBuf,
 }
 
+// --- VERIFICATION RESULTS ---
+
+#[derive(Debug)]
+pub struct VerifyResult {
+    pub packages_checked: usize,
+    pub targets_checked: usize,
+    pub failures: Vec<VerificationFailure>,
+}
+
+#[derive(Debug)]
+pub struct VerificationFailure {
+    pub package_name: String,
+    pub version: String,
+    pub target: String,
+    pub error: String,
+}
+
 // --- REAL-TIME EVENTS ---
 
 /// Event from `RushEngine::install_package()` and `add_package_manual`
