@@ -178,13 +178,16 @@ fn main() -> Result<()> {
             }
 
             DevCommands::Verify => {
-                // Ensure we are working with a valid registry source
                 engine.ensure_local_registry()?;
+                
+                // 1. Auto-Update (Silent) to ensure we verify what's on disk
+                // We pass an empty closure to ignore update progress
+                let _ = engine.update_registry(|_| {}); 
 
                 ui::print_verify_start();
 
-                // Reuse the install handler so we see progress bars for every download
-                let event_handler = ui::create_install_handler();
+                // 2. Use the new dedicated handler
+                let event_handler = ui::create_verify_handler();
 
                 let result = engine.verify_registry(event_handler)?;
 

@@ -104,24 +104,7 @@ pub struct InstallResult {
     pub path: PathBuf,
 }
 
-// --- VERIFICATION RESULTS ---
-
-#[derive(Debug)]
-pub struct VerifyResult {
-    pub packages_checked: usize,
-    pub targets_checked: usize,
-    pub failures: Vec<VerificationFailure>,
-}
-
-#[derive(Debug)]
-pub struct VerificationFailure {
-    pub package_name: String,
-    pub version: String,
-    pub target: String,
-    pub error: String,
-}
-
-// --- REAL-TIME EVENTS ---
+// REAL-TIME EVENTS
 
 /// Event from `RushEngine::install_package()` and `add_package_manual`
 pub enum InstallEvent {
@@ -147,6 +130,33 @@ pub enum UpdateEvent {
     Unpacking,
 }
 
+// --- VERIFICATION RESULTS ---
+
+#[derive(Debug)]
+pub struct VerifyResult {
+    pub packages_checked: usize,
+    pub targets_checked: usize,
+    pub failures: Vec<VerificationFailure>,
+}
+
+#[derive(Debug)]
+pub struct VerificationFailure {
+    pub package_name: String,
+    pub version: String,
+    pub target: String,
+    pub error: String,
+}
+
+// REAL TIME EVENTS
+
+/// Event from `RushEngine::verify_registry()`
+pub enum VerifyEvent {
+    /// We are starting to check a specific target
+    Checking { name: String, target: String },
+    /// Progress updates from the underlying download/install logic
+    Progress(InstallEvent),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,32 +167,32 @@ mod tests {
     fn test_package_manifest_contract() {
         // This matches the registry structure (one file per package)
         let toml_input = r#"
-            version = "1.0.0"
-            description = "A test tool"
-            
-            [targets.x86_64-linux]
-            url = "https://example.com/tool.tar.gz"
-            bin = "tool"
-            sha256 = "abc123456"
+        version = "1.0.0"
+        description = "A test tool"
+        
+        [targets.x86_64-linux]
+        url = "https://example.com/tool.tar.gz"
+        bin = "tool"
+        sha256 = "abc123456"
         "#;
-
+        
         let manifest: PackageManifest =
-            toml::from_str(toml_input).expect("Failed to parse package manifest");
-
+        toml::from_str(toml_input).expect("Failed to parse package manifest");
+        
         assert_eq!(manifest.version, "1.0.0");
-
+        
         let target = &manifest.targets["x86_64-linux"];
         assert_eq!(target.bin, "tool");
     }
-
+    
     #[test]
     /// Verify we can parse an existing installed.json format
     /// If this test fails, it means we broke compatibility with our existing state files.
     fn test_state_json_contract() {
         let json_input = r#"
         {
-            "packages": {
-                "grep": {
+        "packages": {
+            "grep": {
                     "version": "2.0",
                     "binaries": ["grep"]
                 }
@@ -193,7 +203,7 @@ mod tests {
         let state: State = serde_json::from_str(json_input).expect("Failed to parse state JSON");
         assert_eq!(state.packages["grep"].version, "2.0");
     }
-
+    
     #[test]
     /// Verify that Saving -> Loading gives the exact same data
     fn test_state_round_trip() {
@@ -205,13 +215,13 @@ mod tests {
                 binaries: vec!["bar".to_string()],
             },
         );
-
+        
         let serialized = serde_json::to_string(&original).unwrap();
         let deserialized: State = serde_json::from_str(&serialized).unwrap();
-
+        
         assert_eq!(original.packages["foo"], deserialized.packages["foo"]);
     }
-
+    
     #[test]
     /// Verify we can parse GitHub Releases API JSON
     fn test_github_release_deserialization() {
@@ -221,17 +231,17 @@ mod tests {
             "tag_name": "v1.0.0",
             "assets": [
                 {
-                    "name": "example.zip",
-                    "browser_download_url": "https://github.com/octocat/Hello-World/releases/download/v1.0.0/example.zip"
+                "name": "example.zip",
+                "browser_download_url": "https://github.com/octocat/Hello-World/releases/download/v1.0.0/example.zip"
                 }
-            ]
-        }"#;
-
-        let release: GitHubRelease =
+                ]
+            }"#;
+            
+            let release: GitHubRelease =
             serde_json::from_str(json).expect("Failed to parse GitHub JSON");
-
-        assert_eq!(release.tag_name, "v1.0.0");
-        assert_eq!(release.assets.len(), 1);
-        assert_eq!(release.assets[0].name, "example.zip");
+            
+            assert_eq!(release.tag_name, "v1.0.0");
+            assert_eq!(release.assets.len(), 1);
+            assert_eq!(release.assets[0].name, "example.zip");
     }
 }

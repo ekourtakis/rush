@@ -7,8 +7,7 @@ mod update;
 mod util;
 
 use crate::models::{
-    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State,
-    TargetDefinition, UninstallResult, UpdateEvent, UpdateResult, VerifyResult,
+    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult, VerifyEvent, VerifyResult
 };
 use anyhow::{Context, Result};
 use std::fs::{self};
@@ -160,7 +159,7 @@ impl RushEngine {
     /// Developer Tool: Verify integrity of all packages in the registry
     pub fn verify_registry<F>(&self, on_event: F) -> Result<VerifyResult>
     where
-        F: FnMut(InstallEvent),
+        F: FnMut(VerifyEvent),
     {
         dev::verify_registry(self, on_event)
     }

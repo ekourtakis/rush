@@ -1,7 +1,7 @@
 use crate::core::{RushEngine, util};
 use crate::models::{
     GitHubRelease, ImportCandidate, InstallEvent, PackageManifest, ScoredAsset, TargetDefinition,
-    VerificationFailure, VerifyResult,
+    VerifyEvent, VerificationFailure, VerifyResult,
 };
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
@@ -237,9 +237,8 @@ fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
 /// Iterates through the entire registry, checking downloads, hashes, and binary existence.
 pub fn verify_registry<F>(engine: &RushEngine, mut on_event: F) -> Result<VerifyResult>
 where
-    F: FnMut(InstallEvent),
+    F: FnMut(VerifyEvent), // <--- Changed from InstallEvent
 {
-    // 1. Get all packages
     let packages = engine.list_available_packages();
     let packages_count = packages.len();
     let mut failures = Vec::new();
@@ -249,17 +248,31 @@ where
         for (target_arch, target_def) in manifest.targets {
             targets_checked += 1;
 
-            // We use an internal closure/block to capture errors for this specific target
-            // without stopping the whole verification process.
-            let check_result = (|| -> Result<()> {
-                // A. Download
-                let content = util::download_url(&engine.client, &target_def.url, &mut on_event)?;
+            // 1. Notify UI we are starting this target
+            on_event(VerifyEvent::Checking {
+                name: pkg_name.clone(),
+                target: target_arch.clone(),
+            });
 
+            // 2. Create an adapter closure to map InstallEvent -> VerifyEvent::Progress
+            // We need a ref to on_event, so we wrap it.
+            let mut progress_adapter = |evt: InstallEvent| {
+                on_event(VerifyEvent::Progress(evt));
+            };
+
+            let check_result = (|| -> Result<()> {
+                // Pass the adapter to download_url
+                let content = util::download_url(&engine.client, &target_def.url, &mut progress_adapter)?;
+
+                // Manually trigger the VerifyEvent::Progress for checksum/success steps if needed
+                // (Though download_url mostly handles the heavy lifting)
+                
                 // B. Verify Checksum
-                on_event(InstallEvent::VerifyingChecksum);
+                progress_adapter(InstallEvent::VerifyingChecksum);
                 util::verify_checksum(&content, &target_def.sha256)?;
 
                 // C. Verify Binary Exists in Archive
+                progress_adapter(InstallEvent::Extracting);
                 let tar = GzDecoder::new(&content[..]);
                 let mut archive = Archive::new(tar);
                 let mut found = false;
@@ -278,11 +291,13 @@ where
                 if !found {
                     anyhow::bail!("Binary '{}' not found inside archive", target_def.bin);
                 }
+                
+                // Signal success for this specific file (clears the progress bar)
+                progress_adapter(InstallEvent::Success);
 
                 Ok(())
             })();
 
-            // If an error occurred, record it
             if let Err(e) = check_result {
                 failures.push(VerificationFailure {
                     package_name: pkg_name.clone(),
