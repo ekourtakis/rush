@@ -52,7 +52,7 @@ fn write_package_manifest(
     bin_name: Option<String>,
     sha256: &str,
 ) -> Result<()> {
-    let source_path = validate_registry_source(registry_source)?;
+    let source_path = ensure_local_registry(registry_source)?;
 
     // Determine file path: e.g., packages/f/fzf.toml
     let prefix = name.chars().next().context("Package name empty")?;
@@ -96,8 +96,8 @@ fn write_package_manifest(
     Ok(())
 }
 
-/// Helper: Validates the registry source path
-fn validate_registry_source(registry_source: &str) -> Result<PathBuf> {
+/// Ensures registry env variable is set, fails otherwise
+pub fn ensure_local_registry(registry_source: &str) -> Result<PathBuf> {
     let source_path = PathBuf::from(registry_source);
 
     if registry_source.is_empty() || !source_path.exists() || !source_path.is_dir() {
@@ -115,7 +115,7 @@ pub fn fetch_github_import_candidates(
     engine: &RushEngine,
     repo: &str,
 ) -> Result<(String, String, Vec<ImportCandidate>)> {
-    validate_registry_source(&engine.registry_source)?;
+    ensure_local_registry(&engine.registry_source)?;
 
     let api_url = format!("https://api.github.com/repos/{}/releases/latest", repo);
 

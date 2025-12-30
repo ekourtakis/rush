@@ -138,6 +138,8 @@ fn main() -> Result<()> {
                 ui::print_dev_add_success(name);
             }
             DevCommands::Import { repo } => {
+                engine.ensure_local_registry()?;
+
                 ui::print_fetching_metadata(repo);
 
                 // 1. Get Candidates from Core
