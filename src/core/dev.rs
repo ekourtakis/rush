@@ -566,4 +566,108 @@ mod tests {
         assert_eq!(filenames[2], "app-linux.zip", "Zip should be third");
         assert_eq!(filenames[3], "app.deb", "Deb should be last");
     }
+
+    #[test]
+    fn test_verify_registry_detects_bad_hash() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let source_dir = root.join("source");
+
+        // 1. Create directory structure
+        let pkg_dir = source_dir.join("packages/b");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+
+        // 2. Create dummy content
+        let archive_path = source_dir.join("bad.tar.gz");
+        std::fs::write(&archive_path, "dummy content").unwrap();
+
+        // 3. Write TOML with nonsense hash
+        let toml_path = pkg_dir.join("bad-pkg.toml");
+        std::fs::write(
+            &toml_path,
+            format!(
+                r#"
+            version = "1.0.0"
+            [targets.x86_64-linux]
+            url = "file://{}"
+            bin = "bad"
+            sha256 = "deadbeef"
+        "#,
+                archive_path.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+
+        // 4. Run Verify
+        let engine =
+            RushEngine::with_root_and_registry(root, source_dir.to_str().unwrap().to_string())
+                .unwrap();
+        engine.update_registry(|_| {}).unwrap();
+
+        let result = engine.verify_registry(|_| {}).unwrap();
+
+        assert!(!result.failures.is_empty());
+        assert!(result.failures[0].error.contains("Checksum mismatch"));
+    }
+
+    #[test]
+    fn test_verify_registry_detects_missing_binary() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let source_dir = root.join("source");
+
+        // 1. Create a VALID tarball (valid GZIP), but EMPTY of the binary we want
+        std::fs::create_dir_all(&source_dir).unwrap();
+        let archive_path = source_dir.join("empty.tar.gz");
+        let f = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        let mut header = tar::Header::new_gnu();
+        header.set_path("other-file.txt").unwrap();
+        header.set_size(0);
+        header.set_cksum();
+        tar.append_data(&mut header, "other-file.txt", "".as_bytes())
+            .unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+
+        // 2. Calculate VALID hash for that tarball
+        let bytes = std::fs::read(&archive_path).unwrap();
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&bytes);
+        let sha256 = hex::encode(hasher.finalize());
+
+        // 3. Write TOML expecting "real-binary"
+        let pkg_dir = source_dir.join("packages/m");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("missing.toml"),
+            format!(
+                r#"
+            version = "1.0.0"
+            [targets.x86_64-linux]
+            url = "file://{}"
+            bin = "real-binary"
+            sha256 = "{}"
+        "#,
+                archive_path.to_str().unwrap(),
+                sha256
+            ),
+        )
+        .unwrap();
+
+        // 4. Run Verify
+        let engine =
+            RushEngine::with_root_and_registry(root, source_dir.to_str().unwrap().to_string())
+                .unwrap();
+        engine.update_registry(|_| {}).unwrap();
+
+        let result = engine.verify_registry(|_| {}).unwrap();
+
+        assert!(!result.failures.is_empty());
+        assert!(
+            result.failures[0]
+                .error
+                .contains("not found inside archive")
+        );
+    }
 }

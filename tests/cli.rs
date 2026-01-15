@@ -432,3 +432,33 @@ fn test_arch_mismatch() {
         .failure() // Should exit 1
         .stdout(predicate::str::contains("No compatible binary for"));
 }
+
+#[test]
+fn test_dev_verify_failure() {
+    let mock = MockEnvironment::new();
+    // Add a package where content doesn't match the hash
+    mock.add_malicious_package("bad-pkg", "1.0.0", "bin");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    cmd.args(["dev", "verify"])
+        .assert()
+        .failure() // Must exit non-zero
+        .stdout(predicate::str::contains("Verification failed"));
+}
+
+#[test]
+fn test_dev_verify_success() {
+    let mock = MockEnvironment::new();
+    // Add a valid package
+    mock.add_package("good-pkg", "1.0.0", "bin");
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_rush"));
+    cmd.envs(mock.envs());
+
+    cmd.args(["dev", "verify"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("All clean"));
+}

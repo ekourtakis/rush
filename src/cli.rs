@@ -136,4 +136,18 @@ mod tests {
             _ => panic!("Parsed incorrect top-level command"),
         }
     }
+
+    #[test]
+    fn test_dev_verify_command_parsing() {
+        let args = vec!["rush", "dev", "verify"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Commands::Dev { command } => match command {
+                DevCommands::Verify => {} // Success
+                _ => panic!("Parsed incorrect dev subcommand"),
+            },
+            _ => panic!("Parsed incorrect top-level command"),
+        }
+    }
 }
