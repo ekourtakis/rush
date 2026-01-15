@@ -63,6 +63,7 @@ pub enum DevCommands {
         /// Repository (e.g. "sharkdp/bat")
         repo: String,
     },
+    /// Verify the integrity of the local registry
     Verify,
 }
 
