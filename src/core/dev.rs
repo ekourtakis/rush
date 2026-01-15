@@ -680,17 +680,18 @@ mod tests {
         // 1. Create a VALID tarball with a binary
         let archive_path = source_dir.join("good.tar.gz");
         std::fs::create_dir_all(&source_dir).unwrap();
-        
+
         let f = std::fs::File::create(&archive_path).unwrap();
         let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
         let mut tar = tar::Builder::new(enc);
-        
+
         // Add a fake binary file
         let mut header = tar::Header::new_gnu();
         header.set_path("my-bin").unwrap();
         header.set_size(4);
         header.set_cksum();
-        tar.append_data(&mut header, "my-bin", "bin!".as_bytes()).unwrap();
+        tar.append_data(&mut header, "my-bin", "bin!".as_bytes())
+            .unwrap();
         tar.into_inner().unwrap().finish().unwrap();
 
         // 2. Calculate VALID hash
@@ -760,7 +761,10 @@ mod tests {
         let result = engine.verify_registry(|_| {}).unwrap();
 
         assert!(!result.failures.is_empty());
-        assert!(result.failures[0].error.contains("No such file") || result.failures[0].error.contains("cannot find"));
+        assert!(
+            result.failures[0].error.contains("No such file")
+                || result.failures[0].error.contains("cannot find")
+        );
     }
 
     #[test]
@@ -809,6 +813,9 @@ mod tests {
 
         assert!(!result.failures.is_empty());
         // It might fail at GzDecoder or Archive handling
-        assert!(result.failures[0].error.contains("invalid gzip header") || result.failures[0].error.contains("corrupt"));
+        assert!(
+            result.failures[0].error.contains("invalid gzip header")
+                || result.failures[0].error.contains("corrupt")
+        );
     }
 }
