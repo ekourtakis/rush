@@ -175,16 +175,16 @@ mod tests {
         bin = "tool"
         sha256 = "abc123456"
         "#;
-        
+
         let manifest: PackageManifest =
-        toml::from_str(toml_input).expect("Failed to parse package manifest");
-        
+            toml::from_str(toml_input).expect("Failed to parse package manifest");
+
         assert_eq!(manifest.version, "1.0.0");
-        
+
         let target = &manifest.targets["x86_64-linux"];
         assert_eq!(target.bin, "tool");
     }
-    
+
     #[test]
     /// Verify we can parse an existing installed.json format
     /// If this test fails, it means we broke compatibility with our existing state files.
@@ -203,7 +203,7 @@ mod tests {
         let state: State = serde_json::from_str(json_input).expect("Failed to parse state JSON");
         assert_eq!(state.packages["grep"].version, "2.0");
     }
-    
+
     #[test]
     /// Verify that Saving -> Loading gives the exact same data
     fn test_state_round_trip() {
@@ -215,13 +215,13 @@ mod tests {
                 binaries: vec!["bar".to_string()],
             },
         );
-        
+
         let serialized = serde_json::to_string(&original).unwrap();
         let deserialized: State = serde_json::from_str(&serialized).unwrap();
-        
+
         assert_eq!(original.packages["foo"], deserialized.packages["foo"]);
     }
-    
+
     #[test]
     /// Verify we can parse GitHub Releases API JSON
     fn test_github_release_deserialization() {
@@ -236,12 +236,12 @@ mod tests {
                 }
                 ]
             }"#;
-            
-            let release: GitHubRelease =
+
+        let release: GitHubRelease =
             serde_json::from_str(json).expect("Failed to parse GitHub JSON");
-            
-            assert_eq!(release.tag_name, "v1.0.0");
-            assert_eq!(release.assets.len(), 1);
-            assert_eq!(release.assets[0].name, "example.zip");
+
+        assert_eq!(release.tag_name, "v1.0.0");
+        assert_eq!(release.assets.len(), 1);
+        assert_eq!(release.assets[0].name, "example.zip");
     }
 }

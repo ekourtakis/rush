@@ -1,7 +1,7 @@
 use crate::core::{RushEngine, util};
 use crate::models::{
     GitHubRelease, ImportCandidate, InstallEvent, PackageManifest, ScoredAsset, TargetDefinition,
-    VerifyEvent, VerificationFailure, VerifyResult,
+    VerificationFailure, VerifyEvent, VerifyResult,
 };
 use anyhow::{Context, Result};
 use flate2::read::GzDecoder;
@@ -262,11 +262,12 @@ where
 
             let check_result = (|| -> Result<()> {
                 // Pass the adapter to download_url
-                let content = util::download_url(&engine.client, &target_def.url, &mut progress_adapter)?;
+                let content =
+                    util::download_url(&engine.client, &target_def.url, &mut progress_adapter)?;
 
                 // Manually trigger the VerifyEvent::Progress for checksum/success steps if needed
                 // (Though download_url mostly handles the heavy lifting)
-                
+
                 // B. Verify Checksum
                 progress_adapter(InstallEvent::VerifyingChecksum);
                 util::verify_checksum(&content, &target_def.sha256)?;
@@ -291,7 +292,7 @@ where
                 if !found {
                     anyhow::bail!("Binary '{}' not found inside archive", target_def.bin);
                 }
-                
+
                 // Signal success for this specific file (clears the progress bar)
                 progress_adapter(InstallEvent::Success);
 

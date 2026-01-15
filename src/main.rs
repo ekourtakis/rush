@@ -179,10 +179,10 @@ fn main() -> Result<()> {
 
             DevCommands::Verify => {
                 engine.ensure_local_registry()?;
-                
+
                 // 1. Auto-Update (Silent) to ensure we verify what's on disk
                 // We pass an empty closure to ignore update progress
-                let _ = engine.update_registry(|_| {}); 
+                let _ = engine.update_registry(|_| {});
 
                 ui::print_verify_start();
 

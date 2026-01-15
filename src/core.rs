@@ -7,7 +7,8 @@ mod update;
 mod util;
 
 use crate::models::{
-    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State, TargetDefinition, UninstallResult, UpdateEvent, UpdateResult, VerifyEvent, VerifyResult
+    CleanResult, ImportCandidate, InstallEvent, InstallResult, PackageManifest, State,
+    TargetDefinition, UninstallResult, UpdateEvent, UpdateResult, VerifyEvent, VerifyResult,
 };
 use anyhow::{Context, Result};
 use std::fs::{self};
