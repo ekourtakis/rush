@@ -281,11 +281,11 @@ where
                 for entry in archive.entries()? {
                     let entry = entry?;
                     let path = entry.path()?;
-                    if let Some(fname) = path.file_name() {
-                        if fname == std::ffi::OsStr::new(&target_def.bin) {
-                            found = true;
-                            break;
-                        }
+                    if let Some(fname) = path.file_name()
+                        && fname == std::ffi::OsStr::new(&target_def.bin)
+                    {
+                        found = true;
+                        break;
                     }
                 }
 

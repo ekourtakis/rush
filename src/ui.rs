@@ -306,7 +306,6 @@ pub fn create_verify_handler() -> impl FnMut(VerifyEvent) {
 }
 
 pub fn print_verify_summary(result: &VerifyResult) {
-    println!(""); // Spacing
     if result.failures.is_empty() {
         print_success(&format!(
             "Verified {} packages ({} targets). All clean.",
