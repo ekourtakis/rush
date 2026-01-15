@@ -104,7 +104,7 @@ pub struct InstallResult {
     pub path: PathBuf,
 }
 
-// --- REAL-TIME EVENTS ---
+// REAL-TIME EVENTS
 
 /// Event from `RushEngine::install_package()` and `add_package_manual`
 pub enum InstallEvent {
@@ -130,6 +130,33 @@ pub enum UpdateEvent {
     Unpacking,
 }
 
+// --- VERIFICATION RESULTS ---
+
+#[derive(Debug)]
+pub struct VerifyResult {
+    pub packages_checked: usize,
+    pub targets_checked: usize,
+    pub failures: Vec<VerificationFailure>,
+}
+
+#[derive(Debug)]
+pub struct VerificationFailure {
+    pub package_name: String,
+    pub version: String,
+    pub target: String,
+    pub error: String,
+}
+
+// REAL TIME EVENTS
+
+/// Event from `RushEngine::verify_registry()`
+pub enum VerifyEvent {
+    /// We are starting to check a specific target
+    Checking { name: String, target: String },
+    /// Progress updates from the underlying download/install logic
+    Progress(InstallEvent),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,13 +167,13 @@ mod tests {
     fn test_package_manifest_contract() {
         // This matches the registry structure (one file per package)
         let toml_input = r#"
-            version = "1.0.0"
-            description = "A test tool"
-            
-            [targets.x86_64-linux]
-            url = "https://example.com/tool.tar.gz"
-            bin = "tool"
-            sha256 = "abc123456"
+        version = "1.0.0"
+        description = "A test tool"
+        
+        [targets.x86_64-linux]
+        url = "https://example.com/tool.tar.gz"
+        bin = "tool"
+        sha256 = "abc123456"
         "#;
 
         let manifest: PackageManifest =
@@ -164,8 +191,8 @@ mod tests {
     fn test_state_json_contract() {
         let json_input = r#"
         {
-            "packages": {
-                "grep": {
+        "packages": {
+            "grep": {
                     "version": "2.0",
                     "binaries": ["grep"]
                 }
@@ -204,11 +231,11 @@ mod tests {
             "tag_name": "v1.0.0",
             "assets": [
                 {
-                    "name": "example.zip",
-                    "browser_download_url": "https://github.com/octocat/Hello-World/releases/download/v1.0.0/example.zip"
+                "name": "example.zip",
+                "browser_download_url": "https://github.com/octocat/Hello-World/releases/download/v1.0.0/example.zip"
                 }
-            ]
-        }"#;
+                ]
+            }"#;
 
         let release: GitHubRelease =
             serde_json::from_str(json).expect("Failed to parse GitHub JSON");

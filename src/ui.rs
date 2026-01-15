@@ -1,6 +1,6 @@
 use crate::models::{
     CleanResult, ImportCandidate, InstallEvent, InstalledPackage, PackageManifest, UninstallResult,
-    UpdateEvent,
+    UpdateEvent, VerifyEvent, VerifyResult,
 };
 use anyhow::Result;
 use colored::*;
@@ -251,5 +251,80 @@ pub fn prompt_select_asset(candidate: &ImportCandidate) -> Result<Option<usize>>
         Ok(None) // User selected "Skip"
     } else {
         Ok(Some(selection))
+    }
+}
+
+// --- VERIFY UI ---
+
+pub fn print_verify_start() {
+    println!("{}", "Verifying registry integrity...".cyan());
+}
+
+/// Factory: Creates a closure that handles VerifyEvents
+pub fn create_verify_handler() -> impl FnMut(VerifyEvent) {
+    let mut pb: Option<ProgressBar> = None;
+
+    move |event: VerifyEvent| match event {
+        VerifyEvent::Checking { name, target } => {
+            // Clear previous bar if it existed (though Success usually handles it)
+            if let Some(bar) = &pb {
+                bar.finish_and_clear();
+            }
+            // Print the line: "Checking package (target)..."
+            // We use print! (no newline) so the progress bar can appear on the same line or below
+            // Actually, simplest is just println! and let the bar appear below.
+            println!("{} {} ({})", "Checking".blue(), name, target.dimmed());
+        }
+        VerifyEvent::Progress(install_event) => {
+            // Reuse logic similar to install handler
+            match install_event {
+                InstallEvent::Downloading { total_bytes } => {
+                    let b = ProgressBar::new(total_bytes);
+                    b.set_style(
+                        ProgressStyle::default_bar()
+                            .template("{spinner:.green} [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                            .unwrap()
+                            .progress_chars("#>-"),
+                    );
+                    pb = Some(b);
+                }
+                InstallEvent::Progress { bytes, total: _ } => {
+                    if let Some(bar) = &pb {
+                        bar.inc(bytes);
+                    }
+                }
+                InstallEvent::Success => {
+                    if let Some(bar) = &pb {
+                        bar.finish_and_clear();
+                    }
+                }
+                // We can ignore VerifyingChecksum text here to keep it cleaner
+                _ => {}
+            }
+        }
+    }
+}
+
+pub fn print_verify_summary(result: &VerifyResult) {
+    if result.failures.is_empty() {
+        print_success(&format!(
+            "Verified {} packages ({} targets). All clean.",
+            result.packages_checked, result.targets_checked
+        ));
+    } else {
+        print_error(&format!(
+            "Verification failed for {} targets!",
+            result.failures.len()
+        ));
+        println!("{}", "Failures:".bold().underline());
+        for fail in &result.failures {
+            println!(
+                " Error: {} v{} ({})\n    └─ {}",
+                fail.package_name.bold(),
+                fail.version,
+                fail.target.yellow(),
+                fail.error.red()
+            );
+        }
     }
 }

@@ -63,6 +63,8 @@ pub enum DevCommands {
         /// Repository (e.g. "sharkdp/bat")
         repo: String,
     },
+    /// Verify the integrity of the local registry
+    Verify,
 }
 
 // --- TESTS ---
@@ -129,6 +131,20 @@ mod tests {
                     assert_eq!(url, "http://example.com/tool.tar.gz");
                     assert_eq!(bin, Some("tool-bin".to_string()));
                 }
+                _ => panic!("Parsed incorrect dev subcommand"),
+            },
+            _ => panic!("Parsed incorrect top-level command"),
+        }
+    }
+
+    #[test]
+    fn test_dev_verify_command_parsing() {
+        let args = vec!["rush", "dev", "verify"];
+        let cli = Cli::parse_from(args);
+
+        match cli.command {
+            Commands::Dev { command } => match command {
+                DevCommands::Verify => {} // Success
                 _ => panic!("Parsed incorrect dev subcommand"),
             },
             _ => panic!("Parsed incorrect top-level command"),
