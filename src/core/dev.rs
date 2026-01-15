@@ -670,4 +670,145 @@ mod tests {
                 .contains("not found inside archive")
         );
     }
+
+    #[test]
+    fn test_verify_registry_success() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let source_dir = root.join("source");
+
+        // 1. Create a VALID tarball with a binary
+        let archive_path = source_dir.join("good.tar.gz");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        
+        let f = std::fs::File::create(&archive_path).unwrap();
+        let enc = flate2::write::GzEncoder::new(f, flate2::Compression::default());
+        let mut tar = tar::Builder::new(enc);
+        
+        // Add a fake binary file
+        let mut header = tar::Header::new_gnu();
+        header.set_path("my-bin").unwrap();
+        header.set_size(4);
+        header.set_cksum();
+        tar.append_data(&mut header, "my-bin", "bin!".as_bytes()).unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+
+        // 2. Calculate VALID hash
+        let bytes = std::fs::read(&archive_path).unwrap();
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&bytes);
+        let sha256 = hex::encode(hasher.finalize());
+
+        // 3. Write TOML
+        let pkg_dir = source_dir.join("packages/g");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("good.toml"),
+            format!(
+                r#"
+            version = "1.0.0"
+            [targets.x86_64-linux]
+            url = "file://{}"
+            bin = "my-bin"
+            sha256 = "{}"
+        "#,
+                archive_path.to_str().unwrap(),
+                sha256
+            ),
+        )
+        .unwrap();
+
+        // 4. Run Verify
+        let engine =
+            RushEngine::with_root_and_registry(root, source_dir.to_str().unwrap().to_string())
+                .unwrap();
+        engine.update_registry(|_| {}).unwrap();
+
+        let result = engine.verify_registry(|_| {}).unwrap();
+
+        assert!(result.failures.is_empty());
+        assert_eq!(result.packages_checked, 1);
+    }
+
+    #[test]
+    fn test_verify_registry_download_404() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let source_dir = root.join("source");
+
+        // 1. Write TOML pointing to nonexistent file
+        let pkg_dir = source_dir.join("packages/g");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("ghost.toml"),
+            r#"
+            version = "1.0.0"
+            [targets.x86_64-linux]
+            url = "file:///path/to/nowhere/ghost.tar.gz"
+            bin = "ghost"
+            sha256 = "fakehash"
+        "#,
+        )
+        .unwrap();
+
+        // 2. Run Verify
+        let engine =
+            RushEngine::with_root_and_registry(root, source_dir.to_str().unwrap().to_string())
+                .unwrap();
+        engine.update_registry(|_| {}).unwrap();
+
+        let result = engine.verify_registry(|_| {}).unwrap();
+
+        assert!(!result.failures.is_empty());
+        assert!(result.failures[0].error.contains("No such file") || result.failures[0].error.contains("cannot find"));
+    }
+
+    #[test]
+    fn test_verify_registry_not_an_archive() {
+        let temp_dir = tempdir().unwrap();
+        let root = temp_dir.path().to_path_buf();
+        let source_dir = root.join("source");
+
+        // 1. Create a file that is NOT a gzip (just text)
+        let archive_path = source_dir.join("broken.tar.gz");
+        std::fs::create_dir_all(&source_dir).unwrap();
+        std::fs::write(&archive_path, "this is not a tarball").unwrap();
+
+        // 2. Calculate VALID hash (so checksum passes)
+        let bytes = std::fs::read(&archive_path).unwrap();
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&bytes);
+        let sha256 = hex::encode(hasher.finalize());
+
+        // 3. Write TOML
+        let pkg_dir = source_dir.join("packages/b");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        std::fs::write(
+            pkg_dir.join("broken.toml"),
+            format!(
+                r#"
+            version = "1.0.0"
+            [targets.x86_64-linux]
+            url = "file://{}"
+            bin = "broken"
+            sha256 = "{}"
+        "#,
+                archive_path.to_str().unwrap(),
+                sha256
+            ),
+        )
+        .unwrap();
+
+        // 4. Run Verify
+        let engine =
+            RushEngine::with_root_and_registry(root, source_dir.to_str().unwrap().to_string())
+                .unwrap();
+        engine.update_registry(|_| {}).unwrap();
+
+        let result = engine.verify_registry(|_| {}).unwrap();
+
+        assert!(!result.failures.is_empty());
+        // It might fail at GzDecoder or Archive handling
+        assert!(result.failures[0].error.contains("invalid gzip header") || result.failures[0].error.contains("corrupt"));
+    }
 }
