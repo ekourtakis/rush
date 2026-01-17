@@ -1,0 +1,31 @@
+name: Registry Verify
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "packages/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "packages/**"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSH_REGISTRY_URL: "."
+
+jobs:
+  verify-registry:
+    name: Verify Registry Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache dependencies
+        uses: swatinem/rust-cache@v2
+
+      - name: Build Rush
+        run: cargo build --release --verbose
+
+      - name: Verify All Packages
+        run: ./target/release/rush dev verify
