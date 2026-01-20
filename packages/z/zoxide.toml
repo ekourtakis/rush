@@ -9,3 +9,8 @@ sha256 = "3d1ec4af7f3d351629f500b432e6c735caf3216ab3eaa76dbe8ffbc8f3006f5a"
 url = "https://github.com/ajeetdsouza/zoxide/releases/download/v0.9.8/zoxide-0.9.8-x86_64-unknown-linux-musl.tar.gz"
 bin = "zoxide"
 sha256 = "4092ee38aa1efde42e4efb2f9c872df5388198aacae7f1a74e5eb5c3cc7f531c"
+
+[targets.x86_64-macos]
+url = "https://github.com/ajeetdsouza/zoxide/releases/download/v0.9.8/zoxide-0.9.8-x86_64-apple-darwin.tar.gz"
+bin = "zoxide"
+sha256 = "cfa865ffd1ba87df2962f40ebd80c366f1d2b484f0c05b6da6b0104f50822f86"

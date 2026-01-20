@@ -1,6 +1,11 @@
-version = "1.2.3"
+version = "1.2.4"
 
 [targets.x86_64-linux]
-url = "https://github.com/bootandy/dust/releases/download/v1.2.3/dust-v1.2.3-i686-unknown-linux-musl.tar.gz"
+url = "https://github.com/bootandy/dust/releases/download/v1.2.4/dust-v1.2.4-x86_64-unknown-linux-musl.tar.gz"
 bin = "dust"
-sha256 = "ea840d8a38b7b21c3e7437d371b61d02ded0d04c83992ac1cebf29634c6cc03a"
+sha256 = "4e313f9f854017e58a2ada4c0d1774677b8cf53d63ab55a991d5871d5f504452"
+
+[targets.x86_64-macos]
+url = "https://github.com/bootandy/dust/releases/download/v1.2.4/dust-v1.2.4-x86_64-apple-darwin.tar.gz"
+bin = "dust"
+sha256 = "bf84d3ff7f58e325d3eb5bb7696df6b22ef1e01fec80c2d8f7c9d3e611be66f4"
