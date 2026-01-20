@@ -143,6 +143,7 @@ fn build_candidates_from_release(release: &GitHubRelease) -> (String, Vec<Import
     let target_defs = vec![
         ("Linux (x86_64)", "x86_64-linux"),
         ("macOS (Apple Silicon)", "aarch64-macos"),
+        ("macOS (Intel)", "x86_64-macos"),
     ];
 
     let mut candidates = Vec::new();
@@ -223,6 +224,23 @@ fn calculate_asset_score(name: &str, target_arch: &str) -> i32 {
                 score -= 50;
             }
             if name.contains("x86_64") || name.contains("amd64") {
+                score -= 50;
+            }
+            if name.contains("windows") || name.contains(".exe") {
+                score -= 50;
+            }
+        }
+        "x86_64-macos" => {
+            if name.contains("apple") || name.contains("darwin") || name.contains("macos") {
+                score += 10;
+            }
+            if name.contains("x86_64") || name.contains("amd64") {
+                score += 10;
+            }
+            if name.contains("linux") {
+                score -= 50;
+            }
+            if name.contains("aarch64") || name.contains("arm") {
                 score -= 50;
             }
             if name.contains("windows") || name.contains(".exe") {
@@ -507,7 +525,22 @@ mod tests {
             -20
         );
 
-        // CASE 3: Global filters
+        // CASE 3: macOS Intel
+        let target = "x86_64-macos";
+
+        // Perfect match: tar.gz (+20), apple (+10), x86_64 (+10) = 40
+        assert_eq!(
+            calculate_asset_score("app-x86_64-apple-darwin.tar.gz", target),
+            40
+        );
+
+        // Wrong Arch: tar.gz (+20), apple (+10), arm64 (-50) = -20
+        assert_eq!(
+            calculate_asset_score("app-aarch64-apple-darwin.tar.gz", target),
+            -20
+        );
+
+        // CASE 4: Global filters
         // Checksums should be heavily penalized regardless of platform
         assert!(calculate_asset_score("app-linux-amd64.tar.gz.sha256", "x86_64-linux") < -50);
     }
