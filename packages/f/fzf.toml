@@ -1,12 +1,17 @@
-version = "0.56.3"
+version = "0.67.0"
 description = "A command-line fuzzy finder"
 
-[targets.x86_64-linux]
-url = "https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-linux_amd64.tar.gz"
-bin = "fzf"
-sha256 = "78e96a88cecfbdb3ff65df89cc47c02573407aee0edd08c87e18a8033d498fef"
-
 [targets.aarch64-macos]
-url = "https://github.com/junegunn/fzf/releases/download/v0.56.3/fzf-0.56.3-darwin_arm64.tar.gz"
+url = "https://github.com/junegunn/fzf/releases/download/v0.67.0/fzf-0.67.0-darwin_arm64.tar.gz"
 bin = "fzf"
-sha256 = "e626056343fd6814a13ab28b8530f771b80dca7c8393c56b82df4229a7424d63"
+sha256 = "b7f34c964d8e52c471c933cef8ec43dc71997c266cafafd1b013bed10fc229a1"
+
+[targets.x86_64-linux]
+url = "https://github.com/junegunn/fzf/releases/download/v0.67.0/fzf-0.67.0-linux_amd64.tar.gz"
+bin = "fzf"
+sha256 = "4be08018ca37b32518c608741933ea335a406de3558242b60619e98f25be2be1"
+
+[targets.x86_64-macos]
+url = "https://github.com/junegunn/fzf/releases/download/v0.67.0/fzf-0.67.0-darwin_amd64.tar.gz"
+bin = "fzf"
+sha256 = "88dc853e0914793a2e7be0d1acfe6c922d9ccad08e3302df092399775b0279ff"

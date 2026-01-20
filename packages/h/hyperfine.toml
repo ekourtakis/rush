@@ -9,3 +9,8 @@ sha256 = "8ee7067016620447c9d2d6234ec9a4680f958b7ad983549b56334668f63075b5"
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz"
 bin = "hyperfine"
 sha256 = "3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03c2b"
+
+[targets.x86_64-macos]
+url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-apple-darwin.tar.gz"
+bin = "hyperfine"
+sha256 = "f58d0b90993fadfa122a351428c469ce24afef3865f027f0e6e86f0830d088f1"

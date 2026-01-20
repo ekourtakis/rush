@@ -1,11 +1,16 @@
-version = "1.24.1"
+version = "1.24.2"
 
 [targets.aarch64-macos]
-url = "https://github.com/starship/starship/releases/download/v1.24.1/starship-aarch64-apple-darwin.tar.gz"
+url = "https://github.com/starship/starship/releases/download/v1.24.2/starship-aarch64-apple-darwin.tar.gz"
 bin = "starship"
-sha256 = "877e6b18d8f826167ca6b6f2ff00ebac2477fa1924c06b89befe524840ffc726"
+sha256 = "d3a0da21374962625a2ee992110979bc1fa33424d7b6aea58a70405e26544fd9"
 
 [targets.x86_64-linux]
-url = "https://github.com/starship/starship/releases/download/v1.24.1/starship-x86_64-unknown-linux-musl.tar.gz"
+url = "https://github.com/starship/starship/releases/download/v1.24.2/starship-x86_64-unknown-linux-musl.tar.gz"
 bin = "starship"
-sha256 = "44a729c34aea5b0451fba49108cdc5ef6b1ae68db65e7623cc244a52efcd23d1"
+sha256 = "00ff3c1f8ffb59b5c15d4b44c076bcca04d92cf0055c86b916248c14f3ae714a"
+
+[targets.x86_64-macos]
+url = "https://github.com/starship/starship/releases/download/v1.24.2/starship-x86_64-apple-darwin.tar.gz"
+bin = "starship"
+sha256 = "237beb10cc970c4361536e9f9f434dfed755f8282c5cd951b6a7e3fcbda8e779"

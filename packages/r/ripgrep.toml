@@ -1,12 +1,17 @@
-version = "14.1.0"
+version = "15.1.0"
 description = "Recursively searches directories for a regex pattern"
 
-[targets.x86_64-linux]
-url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
-bin = "rg"
-sha256 = "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7"
-
 [targets.aarch64-macos]
-url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-aarch64-apple-darwin.tar.gz"
+url = "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-aarch64-apple-darwin.tar.gz"
 bin = "rg"
-sha256 = "fc59ca3eaa5b5bcfa1488eeb80291bad0e8e2842e05d4400fc7b29d5ee4bd26b"
+sha256 = "378e973289176ca0c6054054ee7f631a065874a352bf43f0fa60ef079b6ba715"
+
+[targets.x86_64-linux]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-unknown-linux-musl.tar.gz"
+bin = "rg"
+sha256 = "1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599"
+
+[targets.x86_64-macos]
+url = "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-apple-darwin.tar.gz"
+bin = "rg"
+sha256 = "64811cb24e77cac3057d6c40b63ac9becf9082eedd54ca411b475b755d334882"

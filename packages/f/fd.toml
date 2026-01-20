@@ -9,3 +9,8 @@ sha256 = "0570263812089120bc2a5d84f9e65cd0c25e4a4d724c80075c357239c74ae904"
 url = "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-unknown-linux-musl.tar.gz"
 bin = "fd"
 sha256 = "2b6bfaae8c48f12050813c2ffe1884c61ea26e750d803df9c9114550a314cd14"
+
+[targets.x86_64-macos]
+url = "https://github.com/sharkdp/fd/releases/download/v10.3.0/fd-v10.3.0-x86_64-apple-darwin.tar.gz"
+bin = "fd"
+sha256 = "50d30f13fe3d5914b14c4fff5abcbd4d0cdab4b855970a6956f4f006c17117a3"

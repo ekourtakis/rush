@@ -1,11 +1,16 @@
-version = "0.57.0"
+version = "0.58.1"
 
 [targets.aarch64-macos]
-url = "https://github.com/jesseduffield/lazygit/releases/download/v0.57.0/lazygit_0.57.0_darwin_arm64.tar.gz"
+url = "https://github.com/jesseduffield/lazygit/releases/download/v0.58.1/lazygit_0.58.1_darwin_arm64.tar.gz"
 bin = "lazygit"
-sha256 = "e90dd90c37bb012f1fe708e7f3d32d28747c8638c75a45268734c5e33277c3d0"
+sha256 = "d93a8a217a51f26d0a643a97bd31e3fabcb2e3a78cdbf1f1e533b9cd8bc881ce"
 
 [targets.x86_64-linux]
-url = "https://github.com/jesseduffield/lazygit/releases/download/v0.57.0/lazygit_0.57.0_linux_x86_64.tar.gz"
+url = "https://github.com/jesseduffield/lazygit/releases/download/v0.58.1/lazygit_0.58.1_linux_x86_64.tar.gz"
 bin = "lazygit"
-sha256 = "ced011ecd1459d069c66128fbf172b7248c8b99d8983fa17d84a247a98146d5e"
+sha256 = "61b6b839390c193466fb692f75df4e75ef5e9ced2bf5e0ca8b3848902f0adea9"
+
+[targets.x86_64-macos]
+url = "https://github.com/jesseduffield/lazygit/releases/download/v0.58.1/lazygit_0.58.1_darwin_x86_64.tar.gz"
+bin = "lazygit"
+sha256 = "9f824298c8dbb3efaf6bf93a2e3be8a31fd53213bd3e759b7bd49d7bc7f8e3d0"

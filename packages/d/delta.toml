@@ -9,3 +9,8 @@ sha256 = "6ba38dce9f91ee1b9a24aa4aede1db7195258fe176c3f8276ae2d4457d8170a0"
 url = "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-unknown-linux-musl.tar.gz"
 bin = "delta"
 sha256 = "b7ea845004762358a00ef9127dd9fd723e333c7e4b9cb1da220c3909372310ee"
+
+[targets.x86_64-macos]
+url = "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-apple-darwin.tar.gz"
+bin = "delta"
+sha256 = "e9b5c4a9e73d2119c687e074f0d97f188e30e5fe8ae0e6d455755f74bb5cc0cf"

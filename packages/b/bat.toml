@@ -6,6 +6,11 @@ bin = "bat"
 sha256 = "e30beff26779c9bf60bb541e1d79046250cb74378f2757f8eb250afddb19e114"
 
 [targets.x86_64-linux]
-url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-gnu.tar.gz"
+url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz"
 bin = "bat"
-sha256 = "726f04c8f576a7fd18b7634f1bbf2f915c43494c1c0f013baa3287edb0d5a2a3"
+sha256 = "0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191"
+
+[targets.x86_64-macos]
+url = "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-apple-darwin.tar.gz"
+bin = "bat"
+sha256 = "830d63b0bba1fa040542ec569e3cf77f60d3356b9de75116a344b061e0894245"

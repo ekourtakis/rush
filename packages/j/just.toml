@@ -1,11 +1,16 @@
-version = "1.45.0"
+version = "1.46.0"
 
 [targets.aarch64-macos]
-url = "https://github.com/casey/just/releases/download/1.45.0/just-1.45.0-aarch64-apple-darwin.tar.gz"
+url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-aarch64-apple-darwin.tar.gz"
 bin = "just"
-sha256 = "5bcffd1e4b2b24f71a2acff52a604e9da03615679c0b3045a8c921c95cf1532c"
+sha256 = "438eaf6468a115aa7db93e501cc7e3272f453f6b7083be3863adfab546b23358"
 
 [targets.x86_64-linux]
-url = "https://github.com/casey/just/releases/download/1.45.0/just-1.45.0-x86_64-unknown-linux-musl.tar.gz"
+url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-unknown-linux-musl.tar.gz"
 bin = "just"
-sha256 = "dc3f958aaf8c6506dd90426e9b03f86dd15e74a6467ee0e54929f750af3d9e49"
+sha256 = "79966e6e353f535ee7d1c6221641bcc8e3381c55b0d0a6dc6e54b34f9db36eaa"
+
+[targets.x86_64-macos]
+url = "https://github.com/casey/just/releases/download/1.46.0/just-1.46.0-x86_64-apple-darwin.tar.gz"
+bin = "just"
+sha256 = "ec54dd60ac876261b7318f1852ef9c0319fede1e5a73c14f56d908a8edf595b8"
